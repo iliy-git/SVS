@@ -48,6 +48,7 @@ class SubscriptionController extends Controller
         $userInfo = "upload=0; download=0; total={$totalLimitBytes}; expire={$expireTimestamp}";
 
         return response()->json($nodes, 200, [
+            'Content-Type' => 'text/plain; charset=utf-8',
             'Content-Disposition' => 'inline; filename="' . rawurlencode($safeSubName) . '"',
             'X-Config-Name' => $safeSubName,
             'Profile-Title' => $safeSubName,
@@ -63,6 +64,18 @@ class SubscriptionController extends Controller
 
         parse_str($u['query'] ?? '', $query);
 
+        $userData = [
+            "encryption" => "none",
+            "id" => $u['user'],
+            "level" => 8,
+            "security" => "auto",
+        ];
+
+
+        if (!empty($query['flow'])) {
+            $userData["flow"] = $query['flow'];
+        }
+
         return [
             "mux" => ["concurrency" => -1, "enabled" => false, "xudpConcurrency" => 8, "xudpProxyUDP443" => ""],
             "protocol" => "vless",
@@ -70,12 +83,7 @@ class SubscriptionController extends Controller
                 "vnext" => [[
                     "address" => $u['host'],
                     "port" => (int)($u['port'] ?? 443),
-                    "users" => [[
-                        "encryption" => "none",
-                        "id" => $u['user'],
-                        "level" => 8,
-                        "security" => "auto"
-                    ]]
+                    "users" => [$userData]
                 ]]
             ],
             "streamSettings" => [
