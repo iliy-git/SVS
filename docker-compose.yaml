@@ -1,12 +1,13 @@
 version: '3.8'
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        - USER_ID=${UID:-1000}
+        - GROUP_ID=${GID:-1000}
     container_name: vpn-admin-dev
     user: "${UID:-1000}:${GID:-1000}"
-    #    user: "www-data"
-    #    ports:
-    #      - "8001:8000"
     volumes:
       - .:/var/www
     environment:

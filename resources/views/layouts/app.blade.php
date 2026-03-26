@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>VPN Admin | 3X-UI Style</title>
+    <title>SubVpnSystem</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -32,7 +32,6 @@
             margin: 0;
         }
 
-        /* --- SIDEBAR --- */
         .sidebar {
             width: var(--sidebar-width);
             height: 100vh;
@@ -81,24 +80,21 @@
             border-radius: 8px; font-weight: 600; cursor: pointer;
         }
 
-        /* --- MAIN CONTENT & GLOBAL OVERRIDES --- */
         .main-content {
             margin-left: var(--sidebar-width);
             padding: 2.5rem;
             background-color: var(--main-bg);
         }
 
-        /* Принудительно делаем все карточки темными */
         .card {
             background-color: var(--card-bg) !important;
             border: 1px solid var(--border-color) !important;
             color: var(--text-main) !important;
         }
 
-        /* Стили для таблиц (перебиваем Bootstrap Light) */
         table thead th {
-            background-color: #262c35 !important; /* Явный серый фон для шапки */
-            color: #94a3b8 !important;            /* Светло-серый текст */
+            background-color: #262c35 !important;
+            color: #94a3b8 !important;
             border-bottom: 1px solid rgba(255,255,255,0.1) !important;
             text-transform: uppercase;
             font-size: 0.7rem;
@@ -106,39 +102,33 @@
             padding: 12px 15px !important;
         }
 
-        /* Исправляем текст внутри строк */
         .table tbody td {
-            color: #e2e8f0 !important;            /* Основной текст (Имя) */
+            color: #e2e8f0 !important;
             border-bottom: 1px solid rgba(255,255,255,0.05) !important;
             background-color: transparent !important;
         }
 
-        /* Выделяем второстепенный текст (телефон, адрес), который сейчас не видно */
         .table td, .text-muted, .small {
-            color: #94a3b8 !important;            /* Делаем его светлее, чтобы он читался */
+            color: #94a3b8 !important;
         }
 
-        /* Подсвечиваем Имя (первая колонка) */
         .table tbody tr td:first-child {
             color: #fff !important;
             font-weight: 600;
         }
 
-        /* Убираем белые рамки у карточек, если они остались */
         .card {
             background-color: #1a1d21 !important;
             border: 1px solid rgba(255,255,255,0.05) !important;
-            overflow: hidden; /* Чтобы скругления работали */
+            overflow: hidden;
         }
 
-        /* Исправляем инпут поиска (рамка и текст) */
         .form-control {
             background-color: #111827 !important;
             border: 1px solid #374151 !important;
             color: #fff !important;
         }
 
-        /* Кнопки действий (иконки) */
         .btn-link {
             color: #94a3b8 !important;
             transition: 0.2s;
@@ -150,7 +140,6 @@
             background-color: #111827 !important;
         }
 
-        /* Исправляем инпуты во всем приложении */
         .form-control, .form-select {
             background-color: #0f1114 !important;
             border: 1px solid #334155 !important;
@@ -161,15 +150,13 @@
 
         }
         .breadcrumb-item + .breadcrumb-item::before {
-            color: rgba(255, 255, 255, 0.5) !important; /* Белый с прозрачностью */
+            color: rgba(255, 255, 255, 0.5) !important;
         }
 
-        /* На всякий случай перекрасим и сам текст активного пункта */
         .breadcrumb-item.active {
             color: #fff !important;
         }
 
-        /* И неактивные ссылки в крошках, чтобы они не были синими */
         .breadcrumb-item a {
             color: var(--accent) !important;
             text-decoration: none;
@@ -182,13 +169,11 @@
             box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
         }
 
-        /* Кнопки и мелкие элементы */
         .btn-link { text-decoration: none; }
         .badge.bg-light { background-color: rgba(255,255,255,0.1) !important; color: var(--accent) !important; }
 
         h2, h3, h4, .text-dark { color: #fff !important; }
 
-        /* Скроллбар */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: var(--main-bg); }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
@@ -197,7 +182,6 @@
             display: inline-block;
         }
 
-        /* Само меню */
         .lw-dropdown-menu {
             position: absolute;
             right: 0;
@@ -266,25 +250,23 @@
 
         .flag-img-container { height: 40px; }
 
-        /* Эффект при наведении */
         .flag-box:hover {
             background: rgba(255, 255, 255, 0.08);
             border-color: rgba(255, 255, 255, 0.2);
             transform: translateY(-2px);
         }
 
-        /* АКТИВНОЕ СОСТОЯНИЕ (Когда флаг выбран) */
         .flag-box.active {
-            background: rgba(13, 110, 253, 0.15) !important; /* Прозрачный синий фон */
-            border-color: #0d6efd !important; /* Яркая синяя рамка */
+            background: rgba(13, 110, 253, 0.15) !important;
+            border-color: #0d6efd !important;
             color: #fff !important;
-            box-shadow: 0 0 15px rgba(13, 110, 253, 0.4); /* Свечение вокруг */
-            transform: scale(1.05); /* Легкое увеличение */
+            box-shadow: 0 0 15px rgba(13, 110, 253, 0.4);
+            transform: scale(1.05);
             z-index: 10;
         }
 
         .flag-box.active .flag-img {
-            transform: scale(1.1); /* Увеличиваем саму картинку флага */
+            transform: scale(1.1);
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
 
@@ -293,19 +275,39 @@
             color: #fff;
         }
 
-        /* Скроллбар */
         .overflow-auto::-webkit-scrollbar { width: 4px; }
         .overflow-auto::-webkit-scrollbar-thumb {
             background: rgba(255, 255, 255, 0.1);
             border-radius: 10px;
         }
+
+
+        @keyframes blink {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.9); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .blink {
+            animation: blink 2s infinite ease-in-out;
+            display: inline-block; /* Чтобы трансформация scale работала корректно */
+        }
+
+        /* Сделаем точку чуть более "неоновой" */
+        .text-success-bright {
+            color: #22c55e !important;
+            text-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+        }
     </style>
+
+
+
 </head>
 <body>
 
 <nav class="sidebar">
-    <a href="{{ route('clients.index') }}" class="sidebar-brand" wire:navigate>
-        <i class="bi bi-shield-lock-fill"></i> VPN PANEL
+    <a href="{{ route('dashboard') }}" class="sidebar-brand" wire:navigate>
+        <i class="bi bi-shield-lock-fill"></i> SUB VPN SYSTEM
     </a>
 
     <ul class="nav-list">
@@ -325,6 +327,12 @@
             <a href="{{ route('setting-manager') }}" wire:navigate
                class="nav-item-link {{ request()->routeIs('setting-manager') ? 'active' : '' }}">
                 <i class="bi bi-gear"></i> Настройки
+            </a>
+        </li>
+        <li>
+            <a href="{{ route('database-manager') }}" wire:navigate
+               class="nav-item-link {{ request()->routeIs('database-manager') ? 'active' : '' }}">
+                <i class="bi bi-database"></i> База данных
             </a>
         </li>
     </ul>

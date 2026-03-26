@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Livewire\Component;
 
 new class extends Component {
@@ -10,6 +12,7 @@ new class extends Component {
     public $diskTotal = 0;
     public $diskUsed = 0;
     public $uptime = '';
+    public $serverIp = '';
 
 
     private function getCpuUsage()
@@ -61,7 +64,7 @@ new class extends Component {
 
     private function getUptime()
     {
-        $seconds = (int) explode(' ', file_get_contents('/proc/uptime'))[0];
+        $seconds = (int)explode(' ', file_get_contents('/proc/uptime'))[0];
 
         return sprintf(
             "%dд %02d:%02d",
@@ -71,9 +74,23 @@ new class extends Component {
         );
     }
 
+    private function getServerIp()
+    {
+        return Cache::remember('server_public_ip', 86400, function () {
+            try {
+                return trim(Http::get('https://icanhazip.com')->body());
+            } catch (\Exception $e) {
+                return request()->server('SERVER_ADDR') ?? '0.0.0.0';
+            }
+        });
+    }
+
     public function mount()
     {
         $this->getStats();
+
+        $this->serverIp = $this->getServerIp();
+
     }
 
     public function getStats()
@@ -87,6 +104,7 @@ new class extends Component {
         $this->diskUsed = $disk['used'];
 
         $this->uptime = $this->getUptime();
+
     }
 };
 ?>
@@ -95,9 +113,11 @@ new class extends Component {
 
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="fw-bold text-white m-0">Системный анализ</h2>
-        <span class="badge bg-success bg-opacity-10 text-success p-2">
-            <i class="bi bi-circle-fill me-1 small"></i> Live Monitoring
-        </span>
+        <span class="badge bg-success bg-opacity-10 text-success p-2 d-flex align-items-center"
+              style="border: 1px solid rgba(34, 197, 94, 0.2);">
+        <i class="bi bi-circle-fill me-2 small text-success-bright blink" style="font-size: 0.6rem;"></i>
+        <span style="letter-spacing: 0.5px; font-weight: 600;">LIVE MONITORING</span>
+    </span>
     </div>
 
     <div class="row g-4">
@@ -166,8 +186,8 @@ new class extends Component {
                 </div>
 
                 <div class="text-end">
-                    <div class="text-secondary small">IP</div>
-                    <div class="text-white">{{ request()->server('SERVER_ADDR') }}</div>
+                    <div class="text-secondary small uppercase fw-bold" style="letter-spacing: 1px;">IP</div>
+                    <div class="text-info fs-6 fw-bold">{{ $serverIp }}</div>
                 </div>
             </div>
         </div>

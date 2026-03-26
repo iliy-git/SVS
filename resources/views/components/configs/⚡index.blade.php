@@ -66,7 +66,7 @@ new class extends Component {
                 </div>
             </div>
         @empty
-            <div class="col-12 text-center py-5 bg-white rounded-4 border-dashed">
+            <div class="col-12 text-center py-5 bg-dark rounded-4 border-dashed">
                 <p class="text-muted m-0">Конфигурации еще не созданы</p>
             </div>
         @endforelse

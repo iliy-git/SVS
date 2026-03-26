@@ -104,7 +104,7 @@ new class extends Component {
             </div>
         @empty
             <div class="col-12">
-                <div class="text-center py-5 bg-white rounded-4 border-dashed">
+                <div class="text-center py-5 bg-dark rounded-4 border-dashed">
                     <i class="bi bi-shield-slash display-1 text-muted opacity-25"></i>
                     <p class="text-muted mt-3">У этого клиента пока нет активных подписок</p>
                 </div>

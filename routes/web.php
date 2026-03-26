@@ -5,10 +5,6 @@ use App\Models\Setting;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 
-Route::get('/', function () {
-    return view('welcome');
-})->middleware('auth');
-
 $adminPrefix = 'admin-panel';
 if (Schema::hasTable('settings')) {
     $adminPrefix = Setting::where('key', 'admin_uuid')->value('value') ?? 'admin-panel';
@@ -33,6 +29,8 @@ Route::middleware(['auth', 'verified'])->prefix($adminPrefix)->group(function ()
     Route::livewire('/clients/{clientId}/subs/{subId}/configs/edit/{configId}', 'configs.edit')->name('configs.edit');
 
     Route::livewire('/settings', 'setting-manager')->name('setting-manager');
+
+    Route::livewire('/database', 'database-manager')->name('database-manager');
 
 });
 

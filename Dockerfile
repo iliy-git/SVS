@@ -1,21 +1,57 @@
-FROM php:8.3-fpm
+# === ЭТАП 1: Сборка PHP зависимостей ===
+FROM composer:2.7 as vendor
+WORKDIR /app
+COPY composer.json composer.lock ./
+RUN composer install \
+    --ignore-platform-reqs \
+    --no-interaction \
+    --no-plugins \
+    --no-scripts \
+    --prefer-dist \
+    --no-dev
 
-RUN apt-get update && apt-get install -y \
-    git curl libpng-dev libonig-dev libxml2-dev zip unzip sqlite3 libsqlite3-dev ca-certificates gnupg
+# === ЭТАП 2: Сборка Frontend (JS/CSS) ===
+FROM node:22-alpine as frontend
+WORKDIR /app
+COPY package.json package-lock.json vite.config.js ./
+COPY resources/ ./resources/
+RUN npm install && npm run build
 
-RUN docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd
+# === ЭТАП 3: Финальный образ ===
+FROM php:8.3-fpm-alpine
 
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs
+# Устанавливаем только необходимые системные расширения (минималистично)
+RUN apk add --no-cache \
+    libpng-dev \
+    libzip-dev \
+    zip \
+    icu-dev \
+    oniguruma-dev \
+    sqlite-dev \
+    linux-headers
 
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+RUN docker-php-ext-install pdo_mysql pdo_sqlite mbstring exif pcntl bcmath gd intl
+
+# Настраиваем пользователя (Безопасность)
+# В альпине используем id 1000, который обычно совпадает с хостом
+RUN addgroup -g 1000 iliy && adduser -u 1000 -G iliy -s /bin/sh -D iliy
 
 WORKDIR /var/www
 
-RUN useradd -u 1000 -ms /bin/bash iliy || true
-RUN chown -R iliy:iliy /var/www
+# Копируем только то, что нужно
+COPY --chown=iliy:iliy . .
+# Заменяем папки вендоров и билда на те, что собрали в первых этапах
+COPY --from=vendor --chown=iliy:iliy /app/vendor/ ./vendor/
+COPY --from=frontend --chown=iliy:iliy /app/public/build/ ./public/build/
+
+# Создаем структуру папок и ставим права ОДНИМ слоем (уменьшает размер образа)
+RUN mkdir -p storage/framework/{sessions,views,cache} \
+    && mkdir -p storage/app/private/livewire-tmp \
+    && mkdir -p database \
+    && chown -R iliy:iliy storage database bootstrap/cache \
+    && chmod -R 775 storage database bootstrap/cache
 
 USER iliy
 
-EXPOSE 8000
+EXPOSE 9000
 CMD ["php-fpm"]
