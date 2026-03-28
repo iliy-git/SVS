@@ -63,6 +63,7 @@ new class extends Component {
             DB::table('clients')->delete();
             DB::table('subscriptions')->delete();
             DB::table('configs')->delete();
+            DB::table('nodes')->delete();
 
             DB::statement('PRAGMA foreign_keys = ON');
 
