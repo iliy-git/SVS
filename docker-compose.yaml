@@ -19,10 +19,14 @@ services:
     image: nginx:alpine
     container_name: vpn-admin-nginx
     ports:
-      - "${ADMIN_PORT:-8001}:80"
+      - "${ADMIN_HTTP_PORT:-8002}:80"
+      - "${ADMIN_PORT:-8001}:443"
     volumes:
       - .:/var/www
       - ./docker-nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./certs/fullchain.pem:/etc/letsencrypt/live/subfastspeedvps.work.gd/fullchain.pem:ro
+      - ./certs/privkey.pem:/etc/letsencrypt/live/subfastspeedvps.work.gd/privkey.pem:ro
+      
     depends_on:
       - app
     networks:

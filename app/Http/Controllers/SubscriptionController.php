@@ -150,7 +150,7 @@ class SubscriptionController extends Controller
             $observatory = [
                 "subjectSelector" => $balancerTags,
                 "probeUrl" => "http://connectivitycheck.gstatic.com/generate_204",
-                "probeInterval" => "10s",
+                "probeInterval" => "20s",
                 "enableConcurrency" => true
             ];
 
