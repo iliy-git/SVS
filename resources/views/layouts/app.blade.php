@@ -290,10 +290,9 @@
 
         .blink {
             animation: blink 2s infinite ease-in-out;
-            display: inline-block; /* Чтобы трансформация scale работала корректно */
+            display: inline-block;
         }
 
-        /* Сделаем точку чуть более "неоновой" */
         .text-success-bright {
             color: #22c55e !important;
             text-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
@@ -335,7 +334,14 @@
                 <i class="bi bi-database"></i> База данных
             </a>
         </li>
+        <li>
+            <a href="{{ route('nodes.index') }}" wire:navigate
+               class="nav-item-link {{ request()->routeIs('nodes.*') ? 'active' : '' }}">
+                <i class="bi bi-server"></i> Ноды
+            </a>
+        </li>
     </ul>
+
 
     <div class="sidebar-footer">
         <form method="POST" action="{{ route('logout') }}">

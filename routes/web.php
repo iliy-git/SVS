@@ -26,11 +26,16 @@ Route::middleware(['auth', 'verified'])->prefix($adminPrefix)->group(function ()
 
     Route::livewire('/clients/{clientId}/subs/{subId}/configs', 'configs.index')->name('configs.index');
     Route::livewire('/clients/{clientId}/subs/{subId}/configs/create', 'configs.create')->name('configs.create');
+    Route::livewire('/clients/{clientId}/subs/{subId}/configs/add-config-from-nodes', 'configs.add_from_node')->name('configs.add_from_node');
     Route::livewire('/clients/{clientId}/subs/{subId}/configs/edit/{configId}', 'configs.edit')->name('configs.edit');
 
     Route::livewire('/settings', 'setting-manager')->name('setting-manager');
 
     Route::livewire('/database', 'database-manager')->name('database-manager');
+
+    Route::livewire('/nodes', 'nodes.index')->name('nodes.index');
+    Route::livewire('/nodes/create', 'nodes.create')->name('nodes.create');
+    Route::livewire('/nodes/edit/{nodeId}', 'nodes.edit')->name('nodes.edit');
 
 });
 

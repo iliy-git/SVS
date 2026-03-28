@@ -38,6 +38,11 @@ new class extends Component {
         <a href="{{ route('configs.create', [$clientId, $subId]) }}" wire:navigate class="btn btn-dark px-4 shadow-sm fw-bold">
             <i class="bi bi-plus-lg me-2"></i>Добавить конфиг
         </a>
+        <a href="{{ route('configs.add_from_node', [$clientId, $subId]) }}"
+           wire:navigate
+           class="btn btn-primary px-4 shadow-sm fw-bold border-0">
+            <i class="bi bi-server me-2"></i>Взять с нод
+        </a>
     </div>
 
     <div class="row g-3">
