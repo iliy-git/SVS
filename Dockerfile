@@ -24,6 +24,7 @@ RUN addgroup -g ${GROUP_ID} iliy && \
 
 WORKDIR /var/www
 
+
 RUN chown -R iliy:iliy /var/www
 
 USER iliy
