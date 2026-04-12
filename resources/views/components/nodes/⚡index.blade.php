@@ -75,7 +75,7 @@ new class extends Component {
 
     <div class="card border-0 shadow-sm mb-4 rounded-4 bg-dark" style="border: 1px solid rgba(255,255,255,0.05) !important;">
         <div class="card-body p-2 d-flex align-items-center">
-            <i class="bi bi-search ms-3 text-muted"></i>
+            <i class="bi bi-search m-2 text-muted"></i>
             <input type="text" wire:model.live.debounce.300ms="search" class="form-control border-0 shadow-none ps-3 bg-transparent text-white" placeholder="Поиск по названию или IP...">
             <div wire:loading wire:target="search" class="spinner-border spinner-border-sm text-primary me-3"></div>
         </div>

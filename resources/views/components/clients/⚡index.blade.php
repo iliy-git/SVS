@@ -69,7 +69,7 @@ new class extends Component {
 
     <div class="card border-0 shadow-sm mb-4 rounded-4">
         <div class="card-body p-2 d-flex align-items-center">
-            <i class="bi bi-search ms-3 text-muted"></i>
+            <i class="bi bi-search m-2 text-muted"></i>
             <input type="text" wire:model.live="search"
                    class="form-control border-0 shadow-none ps-2"
                    placeholder="Поиск по имени или телефону...">
