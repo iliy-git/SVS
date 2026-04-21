@@ -41,7 +41,7 @@ new class extends Component {
 
         $subscription->update([
             'happ_url' => $happUrl
-        ])
+        ]);
 
         $client = Client::findOrFail($this->clientId);
         $client->subscriptions()->attach($subscription->id);
