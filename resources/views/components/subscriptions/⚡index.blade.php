@@ -16,6 +16,22 @@ new class extends Component {
         return Client::with('subscriptions')->findOrFail($this->clientId);
     }
 
+        public function getHappUrl($subscriptionId) {
+            $sub = Subscription::find($subscriptionId);
+
+            if (!$sub) return '';
+
+            if (!empty($sub->happ_url)) {
+                return $sub->happ_url;
+            }
+
+            $happUrl = (new \App\Http\Controllers\SubscriptionController())->getHappLink($sub->token);
+
+            $sub->update(['happ_url' => $happUrl]);
+//            dd($sub, $happUrl);
+            return $happUrl;
+        }
+
     public function deleteSubscription($id) {
         $sub = Subscription::findOrFail($id);
         $sub->delete();
@@ -76,7 +92,7 @@ new class extends Component {
                         </div>
 
                         <h5 class="fw-bold text-dark mb-1">{{ $subscription->name }}</h5>
-                        <p class="text-muted small mb-3">Личный токен доступа</p>
+                        <p class="text-muted small mt-3 mb-1">Личный токен доступа</p>
 
                         <div class="input-group input-group-sm">
                             @php
@@ -90,6 +106,26 @@ new class extends Component {
                                 <button class="btn btn-secondary border-0"
                                         onclick="copyToClipboard('{{ $fullSubscriptionUrl }}', this)"
                                         title="Копировать ссылку">
+                                    <i class="bi bi-link-45deg"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <p class="text-muted small mt-3 mb-1">Защищенная ссылка (Happ)</p>
+                        <div class="input-group input-group-sm">
+                            @php
+                                $happUrl = $this->getHappUrl($subscription->id);
+                            @endphp
+                            <div class="input-group input-group-sm custom-url-copy">
+                                <span class="input-group-text bg-dark border-secondary border-opacity-25 text-warning">
+                                    <i class="bi bi-shield-lock-fill"></i>
+                                </span>
+                                <input type="text"
+                                       class="form-control bg-dark text-info border-secondary border-opacity-25 font-monospace"
+                                       value="{{ $happUrl }}"
+                                       readonly>
+                                <button class="btn btn-secondary border-0"
+                                        onclick="copyToClipboard('{{ $happUrl }}', this)"
+                                        title="Копировать Happ ссылку">
                                     <i class="bi bi-link-45deg"></i>
                                 </button>
                             </div>

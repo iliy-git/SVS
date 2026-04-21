@@ -4,17 +4,41 @@ namespace App\Http\Controllers;
 
 use App\Models\Subscription;
 use Illuminate\Http\JsonResponse;
+use App\Models\Config;
+use Illuminate\Support\Facades\Http;
 
 class SubscriptionController extends Controller
 {
     public function show($token): JsonResponse
     {
-        $sub = Subscription::with('configs.flag')->where('token', $token)->firstOrFail();
+        // Загружаем подписку со всеми конфигами и флагами
+        $sub = Subscription::with(['configs.flag', 'configs.node'])->where('token', $token)->firstOrFail();
+
+        // Проверка привязки устройства
+//        $deviceResponse = $this->testingForOneDevice($sub);
+//        if ($deviceResponse) {
+//            return $deviceResponse;
+//        }
+
+        // Обновляем статистику всех конфигов из панелей x-ui
+        foreach ($sub->configs as $config) {
+            $this->refreshConfigStats($config);
+        }
+
+        // Перезагружаем коллекцию после обновления данных в БД
+        $sub->load('configs');
 
         $nodes = [];
         $allOutbounds = [];
-        $totalLimitBytes = 0;
         $serverNodes = [];
+
+        // Переменные для финального заголовка Userinfo
+        $totalUpBytes = 0;
+        $totalDownBytes = 0;
+        $totalLimitBytes = 0;
+
+        // Находим главный конфиг, если он отмечен
+        $mainConfig = $sub->configs->firstWhere('is_main', true);
 
         foreach ($sub->configs as $i => $conf) {
             $tag = "proxy-" . ($i + 1);
@@ -23,21 +47,43 @@ class SubscriptionController extends Controller
             if ($outbound) {
                 $allOutbounds[] = $outbound;
 
-                $limitGb = $conf->traffic_limit ?? 0;
-                $totalLimitBytes += ($limitGb * 1024 * 1024 * 1024);
-                $limitLabel = ($limitGb > 0) ? " ({$limitGb}GB)" : " (∞)";
+                $confUp = (int)($conf->up ?? 0);
+                $confDown = (int)($conf->down ?? 0);
+                $confLimit = (int)(($conf->traffic_limit ?? 0) * 1024**3);
 
+                // --- ЛОГИКА ГЛАВНОГО КОНФИГА ---
+                if ($mainConfig) {
+                    // Если есть главный конфиг, данные для бара берем ТОЛЬКО из него
+                    if ($conf->id === $mainConfig->id) {
+                        $totalUpBytes = $confUp;
+                        $totalDownBytes = $confDown;
+                        $totalLimitBytes = $confLimit;
+                    }
+                } else {
+                    // Если главный не выбран — суммируем трафик всех серверов
+                    $totalUpBytes += $confUp;
+                    $totalDownBytes += $confDown;
+                    $totalLimitBytes += $confLimit;
+                }
+
+                // Форматирование для конкретной строки сервера в списке
+                $usedTotal = $confUp + $confDown;
+                $usedLabel = $usedTotal > 1024**3
+                    ? number_format($usedTotal / 1024**3, 2) . "GB"
+                    : number_format($usedTotal / 1024**2, 1) . "MB";
+
+                $limitLabel = ($conf->traffic_limit > 0) ? "{$conf->traffic_limit}GB" : "∞";
                 $flagEmoji = $conf->flag ? $conf->flag->emoji : "🚀";
-                $configName = $conf->name ?: "Server " . ($i + 1);
-                $displayName = "{$flagEmoji} {$configName}{$limitLabel}";
+                $configName = $conf->name ?: $conf->email;
 
+                $displayName = "{$flagEmoji} {$configName} | {$usedLabel} / {$limitLabel}";
                 $serverNodes[] = $this->generateFullConfig($displayName, [$outbound], $sub->name);
             }
         }
 
         if ($sub->with_balancer && count($allOutbounds) > 1) {
             $balancerTags = array_column($allOutbounds, 'tag');
-            $nodes[] = $this->generateFullConfig("🌐 Auto", $allOutbounds, $sub->name, $balancerTags);
+            $nodes[] = $this->generateFullConfig("🌐 Auto Balancer", $allOutbounds, $sub->name, $balancerTags);
         }
 
         $nodes = array_merge($nodes, $serverNodes);
@@ -45,16 +91,117 @@ class SubscriptionController extends Controller
         $safeSubName = str_replace(['"', "'", "\n", "\r"], '', $sub->name);
         $expireTimestamp = $sub->expires_at ? $sub->expires_at->timestamp : 0;
 
-        $userInfo = "upload=0; download=0; total={$totalLimitBytes}; expire={$expireTimestamp}";
+        // Формируем заголовок для прогресс-бара Happ
+        $userInfo = "upload={$totalUpBytes}; download={$totalDownBytes}; total={$totalLimitBytes}; expire={$expireTimestamp}";
 
         return response()->json($nodes, 200, [
             'Content-Type' => 'text/plain; charset=utf-8',
-            'Content-Disposition' => 'inline; filename="' . rawurlencode($safeSubName) . '"',
             'X-Config-Name' => $safeSubName,
             'Profile-Title' => $safeSubName,
             'Subscription-Userinfo' => $userInfo,
             'Profile-Update-Interval' => '2',
         ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    }
+    public function getHappLink($token)
+    {
+        $sub = Subscription::where('token', $token)->first();
+        $limit = $sub ? ($sub->install_limit ?? 1) : 1;
+
+        $providerCode = env('HAPP_PROVIDER_CODE');
+        $authKey = env('HAPP_AUTH_KEY');
+
+        try {
+            $installResponse = Http::timeout(5)->get('https://api.happ-proxy.com/api/add-install', [
+                'provider_code' => $providerCode,
+                'auth_key' => $authKey,
+                'install_limit' => $limit
+            ]);
+
+            $url = route('subscription.raw', ['token' => $token]);
+
+            if ($installResponse->ok() && $installResponse->json('rc') === 1) {
+                $installCode = $installResponse->json('install_code');
+
+                if ($sub) {
+                    $sub->update(['happ_install_code' => $installCode]);
+                }
+
+                $url .= (str_contains($url, '?') ? '&' : '?') . "InstallID=" . $installCode;
+            }
+
+            $cryptoResponse = Http::timeout(5)->post('https://crypto.happ.su/api-v2.php', [
+                'url' => $url
+            ]);
+
+            if ($cryptoResponse->ok()) {
+                return $cryptoResponse->json('encrypted_link') ?? $url;
+            }
+
+        } catch (\Exception $e) {
+            \Log::error("Happ API Error: " . $e->getMessage());
+        }
+
+        return route('subscription.raw', ['token' => $token]);
+    }
+    private function refreshConfigStats(Config $config): void
+    {
+        // Проверяем наличие ноды и email для запроса
+        if (!$config->node || !$config->email) {
+            return;
+        }
+
+        try {
+            $response = Http::withHeaders([
+                'X-API-KEY' => $config->node->api_key
+            ])
+                ->timeout(2)
+                ->withoutVerifying()
+                ->get("https://{$config->node->ip}:11223/email", [
+                    'email' => $config->email
+                ]);
+
+            if ($response->ok()) {
+                $data = $response->json();
+
+                $config->update([
+                    'up'    => $data['up'] ?? $config->up,
+                    'down'  => $data['down'] ?? $config->down,
+                    // Если x-ui отдает total (лимит), сохраняем его
+                    'traffic_limit' => isset($data['total']) && $data['total'] > 0
+                        ? ($data['total'] / (1024**3))
+                        : $config->traffic_limit,
+                    'expiry_time'   => $data['expiry_time'] ?? $config->expiry_time,
+                ]);
+            }
+        } catch (\Exception $e) {
+            // В случае ошибки просто логируем или игнорируем, чтобы не прерывать выдачу подписки
+            \Log::error("Failed to refresh stats for {$config->email} on node {$config->node->ip}: " . $e->getMessage());
+        }
+    }
+
+    private function testingForOneDevice($sub)
+    {
+        // Happ обычно передает уникальный ID в X-Device-Id.
+        // Если его нет, используем User-Agent, но обрезаем его, чтобы избежать проблем с версиями.
+        $currentDeviceId = request()->header('X-Device-Id') ?? md5(request()->userAgent());
+
+        // Если в базе пусто — привязываем
+        if (is_null($sub->device_id)) {
+            $sub->update(['device_id' => $currentDeviceId]);
+            return null;
+        }
+
+        // Если ID не совпадает
+        if ($sub->device_id !== $currentDeviceId) {
+            // Логируем для отладки, чтобы ты видел в storage/logs/laravel.log что именно не совпало
+            \Log::warning("Device mismatch for sub {$sub->token}. DB: {$sub->device_id}, Request: {$currentDeviceId}");
+
+            return response()->json([
+                ["remarks" => "⚠️ Ошибка: Доступ только с 1 устройства!"]
+            ], 200, ['Content-Type' => 'text/plain; charset=utf-8']);
+        }
+
+        return null;
     }
 
     private function parseOutbound($link, $tag)

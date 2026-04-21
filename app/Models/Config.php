@@ -8,7 +8,19 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Config extends Model
 {
-    protected $fillable = ['name', 'link', 'flag_id', 'traffic_limit'];
+    protected $fillable = [
+        'subscription_id',
+        'node_id',
+        'name',
+        'email',
+        'link',
+        'traffic_limit',
+        'up',
+        'down',
+        'expiry_time',
+        'flag_id',
+        'is_main',
+        ];
 
     public function subscriptions(): BelongsToMany
     {
@@ -18,5 +30,9 @@ class Config extends Model
     public function flag(): BelongsTo
     {
         return $this->belongsTo(Flag::class);
+    }
+    public function node(): BelongsTo
+    {
+        return $this->belongsTo(Node::class);
     }
 }

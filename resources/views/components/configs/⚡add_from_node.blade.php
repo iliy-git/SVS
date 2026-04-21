@@ -14,6 +14,7 @@
         public $selectedNode = null;
         public $remoteConfigs = [];
         public $existingLinks = [];
+        public $allRemoteData = [];
 
         public function mount($clientId, $subId)
         {
@@ -34,35 +35,48 @@
                     ->get("https://{$this->selectedNode->ip}:11223/");
 
                 if ($response->ok()) {
-                    $allRemoteLinks = $response->json();
+                    $this->allRemoteData = $response->json();
+//                    dd($this->allRemoteData);
 
                     $this->existingLinks = Config::pluck('link')->toArray();
 
-                    $this->remoteConfigs = collect($allRemoteLinks)->sortBy(function($link) {
-                        return in_array(trim($link), $this->existingLinks);
-                    })->values()->all();
-
+                    $this->remoteConfigs = collect($this->allRemoteData)
+                        ->map(fn($item) => $item['link'])
+                        ->sortBy(fn($link) => in_array(trim($link), $this->existingLinks))
+                        ->values()
+                        ->all();
+//                    dd($this->remoteConfigs);
                     $this->step = 2;
                 } else {
-                    session()->flash('error', 'Ошибка: ' . $response->status());
+                    session()->flash('error', 'Ошибка сервера ноды: ' . $response->status());
                 }
             } catch (\Exception $e) {
-                session()->flash('error', 'Нет связи с сервером ноды: ' . $e->getMessage());
+                session()->flash('error', 'Ошибка связи: ' . $e->getMessage());
             }
         }
 
         public function saveRemoteConfig($link)
         {
-            $name = str_contains($link, '#') ? urldecode(explode('#', $link)[1]) : 'New Config';
-    //        dd($name);
-            $config = Config::create([
-                'subscription_id' => $this->subId,
-                'name' => $name,
-                'link' => $link,
-                'flag_id' => $this->selectedNode->flag_id,
-            ]);
-            Subscription::findOrFail($this->subId)->configs()->attach($config->id);
+            // Ищем полные данные во временной коллекции, которую наполнили в fetchConfigs
+            $remoteItem = collect($this->allRemoteData)->firstWhere('link', $link);
 
+            $name = str_contains($link, '#') ? urldecode(explode('#', $link)[1]) : 'New Config';
+
+            // 1. Создаем сам конфиг (без subscription_id)
+            $config = Config::create([
+                'node_id'         => $this->selectedNode->id,
+                'name'            => $remoteItem['email'] ?? null,
+                'email'           => $remoteItem['email'] ?? null,
+                'link'            => $link,
+                'traffic_limit'   => $remoteItem['stats']['total'] ?? 0,
+                'up'              => $remoteItem['stats']['up'] ?? 0,
+                'down'            => $remoteItem['stats']['down'] ?? 0,
+                'expiry_time'     => $remoteItem['stats']['expiry'] ?? null,
+                'flag_id'         => $this->selectedNode->flag_id,
+            ]);
+
+            $subscription = Subscription::findOrFail($this->subId);
+            $subscription->configs()->attach($config->id);
 
             return $this->redirectRoute('configs.index', [$this->clientId, $this->subId], navigate: true);
         }
@@ -139,7 +153,11 @@
                                 <div class="text-truncate me-3">
                                     <div class="d-flex align-items-center mb-1">
                                         <div class="fw-bold text-white">
-                                            {{ str_contains($configLink, '#') ? urldecode(explode('#', $configLink)[1]) : 'Без имени' }}
+                                            @php
+                                                $remoteItem = collect($allRemoteData)->firstWhere('link', $configLink);
+                                                $displayEmail = $remoteItem['email'] ?? 'Без email';
+                                            @endphp
+                                            {{ $displayEmail }}
                                         </div>
                                         @if($isExists)
                                             <span class="badge bg-primary bg-opacity-25 text-primary ms-2 small" style="font-size: 0.6rem;">Используется</span>

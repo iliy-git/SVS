@@ -1,4 +1,6 @@
 <?php
+
+use App\Http\Controllers\SubscriptionController;
 use Livewire\Component;
 use App\Models\Subscription;
 use App\Models\Client;
@@ -10,16 +12,19 @@ new class extends Component {
     public $with_balancer = true;
     public $expires_at;
 
-    public function mount($clientId) {
+    public function mount($clientId)
+    {
         $this->clientId = $clientId;
         $this->generateToken();
     }
 
-    public function generateToken() {
+    public function generateToken()
+    {
         $this->token = bin2hex(random_bytes(16));
     }
 
-    public function save() {
+    public function save()
+    {
         $this->validate([
             'name' => 'required|min:3',
             'token' => 'required|unique:subscriptions,token',
@@ -32,6 +37,11 @@ new class extends Component {
             'with_balancer' => $this->with_balancer,
             'expires_at' => $this->expires_at ?: null,
         ]);
+        $happUrl = (new SubscriptionController())->getHappLink($subscription->token);
+
+        $subscription->update([
+            'happ_url' => $happUrl
+        ])
 
         $client = Client::findOrFail($this->clientId);
         $client->subscriptions()->attach($subscription->id);
@@ -45,7 +55,8 @@ new class extends Component {
         <div class="card border-0 shadow-lg rounded-4 bg-dark text-white">
             <div class="card-body p-4">
                 <div class="d-flex align-items-center mb-4">
-                    <a href="{{ route('subscriptions.index', $clientId) }}" wire:navigate class="btn btn-dark rounded-circle me-3 shadow-sm" style="background: #2a2e34; border: none;">
+                    <a href="{{ route('subscriptions.index', $clientId) }}" wire:navigate
+                       class="btn btn-dark rounded-circle me-3 shadow-sm" style="background: #2a2e34; border: none;">
                         <i class="bi bi-arrow-left text-white"></i>
                     </a>
                     <h4 class="fw-bold m-0">Новый тариф</h4>
@@ -54,39 +65,47 @@ new class extends Component {
                 <form wire:submit.prevent="save">
                     <div class="mb-3">
                         <label class="form-label small fw-bold text-secondary text-uppercase">Название подписки</label>
-                        <input type="text" wire:model="name" class="form-control bg-dark border-0 text-white py-2 shadow-none custom-input" placeholder="Например: VIP Germany">
+                        <input type="text" wire:model="name"
+                               class="form-control bg-dark border-0 text-white py-2 shadow-none custom-input"
+                               placeholder="Например: VIP Germany">
                         @error('name') <small class="text-danger mt-1 d-block">{{ $message }}</small> @enderror
                     </div>
 
                     <div class="mb-4">
                         <label class="form-label small fw-bold text-secondary text-uppercase">Ключ доступа</label>
                         <div class="input-group">
-                            <input type="text" wire:model="token" readonly class="form-control bg-dark border-0 text-primary py-2 font-monospace shadow-none custom-input">
-                            <button type="button" wire:click="generateToken" class="btn btn-dark border-0 shadow-none" style="background: #2a2e34;">
+                            <input type="text" wire:model="token" readonly
+                                   class="form-control bg-dark border-0 text-primary py-2 font-monospace shadow-none custom-input">
+                            <button type="button" wire:click="generateToken" class="btn btn-dark border-0 shadow-none"
+                                    style="background: #2a2e34;">
                                 <i class="bi bi-arrow-clockwise text-white"></i>
                             </button>
                         </div>
                     </div>
 
-                    <div class="balancer-card mb-4 p-3 d-flex align-items-center justify-content-between {{ $with_balancer ? 'active' : '' }}">
+                    <div
+                        class="balancer-card mb-4 p-3 d-flex align-items-center justify-content-between {{ $with_balancer ? 'active' : '' }}">
                         <div class="d-flex align-items-center">
                             <div class="icon-box me-3 d-flex align-items-center justify-content-center">
                                 <i class="bi bi-shuffle fs-4 {{ $with_balancer ? 'text-primary' : 'text-secondary' }}"></i>
                             </div>
                             <div>
                                 <div class="fw-bold small text-uppercase mb-0">Балансировщик (Auto)</div>
-                                <div class="text-secondary" style="font-size: 11px;">Автовыбор лучшего сервера в JSON</div>
+                                <div class="text-secondary" style="font-size: 11px;">Автовыбор лучшего сервера в JSON
+                                </div>
                             </div>
                         </div>
                         <div class="form-check m-0">
-                            <input class="form-check-input custom-checkbox" type="checkbox" wire:model.live="with_balancer">
+                            <input class="form-check-input custom-checkbox" type="checkbox"
+                                   wire:model.live="with_balancer">
                         </div>
                     </div>
 
                     <div class="mb-4">
                         <label class="form-label small fw-bold text-secondary text-uppercase">Срок действия</label>
                         <div class="input-group">
-                            <span class="input-group-text bg-dark border-0 text-secondary" style="border-radius: 10px 0 0 10px;">
+                            <span class="input-group-text bg-dark border-0 text-secondary"
+                                  style="border-radius: 10px 0 0 10px;">
                                 <i class="bi bi-calendar-event"></i>
                             </span>
                             <input type="date" wire:model="expires_at"
@@ -99,7 +118,8 @@ new class extends Component {
                     </div>
 
                     <div class="col-12 d-flex justify-content-between align-items-center pt-2">
-                        <a href="{{ route('subscriptions.index', $clientId) }}" wire:navigate class="btn btn-outline-secondary px-4 py-2 fw-bold rounded-3 shadow-sm border-0 bg-white bg-opacity-5">
+                        <a href="{{ route('subscriptions.index', $clientId) }}" wire:navigate
+                           class="btn btn-outline-secondary px-4 py-2 fw-bold rounded-3 shadow-sm border-0 bg-white bg-opacity-5">
                             <i class="bi bi-arrow-left me-2"></i>ОТМЕНА
                         </a>
 

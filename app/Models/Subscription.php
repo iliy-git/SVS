@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Subscription extends Model
 {
-    protected $fillable = ['name', 'token', 'with_balancer', 'expires_at'];
+    protected $fillable = ['name', 'token', 'with_balancer', 'expires_at', 'happ_url', 'device_id', 'happ_install_code','install_limit'];
 
     protected $casts = [
         'with_balancer' => 'boolean',
