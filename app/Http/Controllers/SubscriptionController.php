@@ -13,12 +13,12 @@ class SubscriptionController extends Controller
     {
         // Загружаем подписку со всеми конфигами и флагами
         $sub = Subscription::with(['configs.flag', 'configs.node'])->where('token', $token)->firstOrFail();
+        $userAgent = request()->header('User-Agent');
 
-        // Проверка привязки устройства
-//        $deviceResponse = $this->testingForOneDevice($sub);
-//        if ($deviceResponse) {
-//            return $deviceResponse;
-//        }
+        $deviceError = $this->checkDeviceBinding($sub);
+        if ($deviceError) {
+            return $deviceError;
+        }
 
         // Обновляем статистику всех конфигов из панелей x-ui
         foreach ($sub->configs as $config) {
@@ -142,6 +142,56 @@ class SubscriptionController extends Controller
         }
 
         return route('subscription.raw', ['token' => $token]);
+    }
+    private function checkDeviceBinding(Subscription $sub): ?JsonResponse
+    {
+        $userAgent = request()->header('User-Agent', '');
+
+        if (!str_contains($userAgent, 'Happ/')) {
+            return null;
+        }
+
+        $parts = explode('/', $userAgent);
+        $happId = end($parts);
+
+        // Первый заход: привязываем устройство
+        if (empty($sub->device_id)) {
+            $sub->update(['device_id' => $happId]);
+            return null;
+        }
+
+        // Если устройство чужое
+        if ($sub->device_id !== $happId) {
+
+            $message1 = "⚠️ ДОСТУП ОГРАНИЧЕН:";
+            $message2 = "Только для одного устройства";
+
+            // Создаем структуру "пустышку"
+            $dummyOutbound = [
+                "protocol" => "vless",
+                "settings" => [
+                    "vnext" => [[
+                        "address" => "127.0.0.1",
+                        "port" => 443,
+                        "users" => [["id" => "00000000-0000-0000-0000-000000000000", "encryption" => "none"]]
+                    ]]
+                ],
+                "tag" => "error-proxy"
+            ];
+
+            $errorNodes = [
+                $this->generateFullConfig($message1, [$dummyOutbound], $sub->name),
+                $this->generateFullConfig($message2, [$dummyOutbound], $sub->name)
+            ];
+
+            return response()->json($errorNodes, 200, [
+                'Content-Type' => 'text/plain; charset=utf-8',
+                'X-Config-Name' => "ОШИБКА ДОСТУПА",
+                'Profile-Title' => "БЫЛ ПРИВЫШЕН ЛИМИТ",
+            ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        }
+
+        return null;
     }
     private function refreshConfigStats(Config $config): void
     {

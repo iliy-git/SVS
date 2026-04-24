@@ -36,6 +36,13 @@ new class extends Component {
         $sub = Subscription::findOrFail($id);
         $sub->delete();
     }
+
+    public function resetDevices($id) {
+        $sub = Subscription::findOrFail($id);
+        $sub->update(['device_id' => null]);
+
+        $this->dispatch('notify', ['message' => 'Устройства сброшены', 'type' => 'success']);
+    }
 }; ?>
 
 <div class="animate__animated animate__fadeIn">
@@ -86,6 +93,11 @@ new class extends Component {
                                             wire:click="deleteSubscription({{ $subscription->id }})"
                                             wire:confirm="Удалить подписку навсегда?">
                                         <i class="bi bi-trash me-2"></i> Удалить
+                                    </button>
+                                    <button class="lw-dropdown-item text-warning"
+                                            wire:click="resetDevices({{ $subscription->id }})"
+                                            wire:confirm="Обнулить привязку устройства для этой подписки?">
+                                        <i class="bi bi-device-hdd-fill me-2"></i> Сбросить устройство
                                     </button>
                                 </div>
                             </div>
