@@ -6,6 +6,7 @@ use App\Models\Subscription;
 use Illuminate\Http\JsonResponse;
 use App\Models\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class SubscriptionController extends Controller
 {
@@ -15,6 +16,7 @@ class SubscriptionController extends Controller
         $sub = Subscription::with(['configs.flag', 'configs.node'])->where('token', $token)->firstOrFail();
         $userAgent = request()->header('User-Agent');
 
+        Log::info(request()->header('User-Agent'));
         $deviceError = $this->checkDeviceBinding($sub);
         if ($deviceError) {
             return $deviceError;
@@ -145,28 +147,42 @@ class SubscriptionController extends Controller
     }
     private function checkDeviceBinding(Subscription $sub): ?JsonResponse
     {
-        $userAgent = request()->header('User-Agent', '');
+        // 1. Извлекаем реальный HWID из заголовков Happ
+        $deviceId = request()->header('x-hwid');
+        \Log::info($deviceId);
+        // 2. Если заголовка нет (например, старая версия или прямой запрос),
+        if (!$deviceId) {
+            $deviceId = request()->query('InstallID');
+        }
 
-        if (!str_contains($userAgent, 'Happ/')) {
+        if (!$deviceId) {
+            $userAgent = request()->header('User-Agent', '');
+            if (str_contains($userAgent, 'Happ/')) {
+                $parts = explode('/', $userAgent);
+                $idFromUa = end($parts);
+                if ($idFromUa !== '17764321936841767581') {
+                    $deviceId = $idFromUa;
+                }
+            }
+        }
+
+        if (!$deviceId) {
             return null;
         }
 
-        $parts = explode('/', $userAgent);
-        $happId = end($parts);
-
-        // Первый заход: привязываем устройство
         if (empty($sub->device_id)) {
-            $sub->update(['device_id' => $happId]);
+            $sub->update(['device_id' => $deviceId]);
+            \Log::info("Устройство привязано: {$deviceId} для подписки #{$sub->id}");
             return null;
         }
 
         // Если устройство чужое
-        if ($sub->device_id !== $happId) {
+        if ($sub->device_id !== $deviceId) {
+            \Log::warning("Блокировка: Подписка {$sub->id} привязана к {$sub->device_id}, пришел {$deviceId}");
 
             $message1 = "⚠️ ДОСТУП ОГРАНИЧЕН:";
-            $message2 = "Только для одного устройства";
+            $message2 = "НЕОБХОДИМО ОБРАТИТЬСЯ В ТП";
 
-            // Создаем структуру "пустышку"
             $dummyOutbound = [
                 "protocol" => "vless",
                 "settings" => [
@@ -187,7 +203,8 @@ class SubscriptionController extends Controller
             return response()->json($errorNodes, 200, [
                 'Content-Type' => 'text/plain; charset=utf-8',
                 'X-Config-Name' => "ОШИБКА ДОСТУПА",
-                'Profile-Title' => "БЫЛ ПРИВЫШЕН ЛИМИТ",
+                'Profile-Title' => "LIMIT_EXCEEDED",
+                'Subscription-Userinfo' => "upload=0; download=0; total=1; expire=1", // Красивая плашка "Истекло"
             ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         }
 
