@@ -1,34 +1,40 @@
 <?php
 
 use App\Models\Flag;
+use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use App\Models\Subscription;
 use App\Models\Config;
-use Livewire\Attributes\Computed;
 
 new class extends Component {
     public $clientId;
     public $subId;
     public $flag;
+    public $subscription;
 
     public function mount($clientId, $subId)
     {
         $this->clientId = $clientId;
         $this->subId = $subId;
-    }
 
-    #[Computed]
-    public function subscription()
+        $this->loadSubscription();
+    }
+    public function loadSubscription()
     {
-        return Subscription::with('configs')->findOrFail($this->subId);
+        $this->subscription = Subscription::with(['configs' => function($query) {
+            $query->orderByDesc('is_active')
+            ->orderByDesc('is_main');
+        }, 'configs.flag'])
+            ->findOrFail($this->subId);
     }
 
     public function deleteConfig($id)
     {
         $config = Config::findOrFail($id);
         $config->delete();
+        $this->loadSubscription();
     }
-    #[Computed]
+
     public function getFlagByID($id)
     {
         return Flag::where('id', $id)->first();
@@ -36,17 +42,26 @@ new class extends Component {
 
     public function setMainConfig($configId)
     {
-        $config = Config::findOrFail($configId);
+        foreach ($this->subscription->configs as $config) {
 
-        if ($config->is_main) {
-            $config->update(['is_main' => false]);
-        } else {
-            Config::where('subscription_id', $this->subId)->update(['is_main' => false]);
-
-            $config->update(['is_main' => true]);
+            if ($config->id == $configId) {
+                $newValue = !$config->is_main;
+                $config->update(['is_main' => $newValue]);
+            } else {
+                if ($config->is_main) {
+                    $config->update(['is_main' => false]);
+                }
+            }
         }
 
-        unset($this->subscription);
+        $this->loadSubscription();
+    }
+    public function toggleActive($configId)
+    {
+        $config = Config::findOrFail($configId);
+        $config->update(['is_active' => !$config->is_active]);
+
+        $this->loadSubscription();
     }
 }; ?>
 
@@ -55,7 +70,8 @@ new class extends Component {
         <div>
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb mb-1">
-                    <li class="breadcrumb-item"><a href="{{ route('subscriptions.index', $clientId) }}" wire:navigate>Подписки</a></li>
+                    <li class="breadcrumb-item"><a href="{{ route('subscriptions.index', $clientId) }}" wire:navigate>Подписки</a>
+                    </li>
                     <li class="breadcrumb-item active">{{ $this->subscription->name }}</li>
                 </ol>
             </nav>
@@ -75,35 +91,51 @@ new class extends Component {
 
     <div class="row g-3">
         @forelse($this->subscription->configs as $config)
-            <div class="col-12" wire:key="config-{{ $config->id }}">
-                <div class="card border-0 shadow-sm rounded-4 {{ $config->is_main ? 'border-start border-primary border-4' : '' }}">
+            <div class="col-12" wire:key="config-{{ $config->id }}-{{ $config->is_active }}-{{ $config->is_main }}">
+                {{-- Добавляем opacity-75 и grayscale для неактивных --}}
+                <div class="card border-0 shadow-sm rounded-4 {{ $config->is_main ? 'border-start border-primary border-4' : '' }} {{ !$config->is_active ? 'opacity-75 bg-light' : '' }}"
+                     style="{{ !$config->is_active ? 'filter: grayscale(0.8);' : '' }} transition: all 0.3s ease;">
+
                     <div class="card-body d-flex justify-content-between align-items-center p-3">
                         <div class="d-flex align-items-center">
-                            <div class="bg-dark rounded-3 me-3 text-white d-flex align-items-center justify-content-center" style="width: 45px; height: 30px; overflow: hidden;">
-                                @php $flagData = $this->getFlagByID($config->flag_id); @endphp
-                                @if($flagData)
-                                    <img src="https://purecatamphetamine.github.io/country-flag-icons/3x2/{{ strtoupper($flagData->code) }}.svg"
-                                         alt="{{ $flagData->name }}"
-                                         class="w-100">
+                            {{-- Флаг --}}
+                            <div class="bg-dark rounded-3 me-3 text-white d-flex align-items-center justify-content-center"
+                                 style="width: 45px; height: 30px; overflow: hidden;">
+                                @if($config->flag)
+                                    <img src="https://purecatamphetamine.github.io/country-flag-icons/3x2/{{ strtoupper($config->flag->code) }}.svg" class="w-100">
                                 @else
                                     <i class="bi bi-geo-alt"></i>
                                 @endif
                             </div>
+
                             <div>
-                                <h6 class="fw-bold mb-0 text-dark">
+                                <h6 class="fw-bold mb-0 {{ $config->is_active ? 'text-dark' : 'text-muted' }}">
                                     {{ $config->name ?: $config->email }}
                                     @if($config->is_main)
-                                    <span class="badge bg-primary-subtle text-primary ms-2" style="font-size: 10px;">MAIN</span>
+                                        <span class="badge bg-primary-subtle text-primary ms-2" style="font-size: 10px;">MAIN</span>
+                                    @endif
+                                    @if(!$config->is_active)
+                                        <span class="badge bg-secondary-subtle text-secondary ms-2" style="font-size: 10px;">OFF</span>
                                     @endif
                                 </h6>
                                 <small class="text-muted text-truncate d-inline-block" style="max-width: 250px;">{{ $config->link }}</small>
                             </div>
                         </div>
+
                         <div class="d-flex gap-2 align-items-center">
+                            {{-- ГАЛОЧКА (is_active) --}}
+                            <button wire:click="toggleActive({{ $config->id }})"
+                                    class="btn btn-sm p-0 border-0 bg-transparent me-1"
+                                    title="{{ $config->is_active ? 'Деактивировать' : 'Активировать' }}">
+                                <i class="bi {{ $config->is_active ? 'bi-check-circle-fill text-success' : 'bi-circle text-muted opacity-50' }} fs-5"></i>
+                            </button>
+
+                            {{-- ЗВЕЗДА (is_main) --}}
                             <button wire:click="setMainConfig({{ $config->id }})"
-                                    class="btn btn-sm {{ $config->is_main ? 'text-warning' : 'text-muted opacity-50' }}"
-                                    title="Переключить основной статус">
-                                <i class="bi {{ $config->is_main ? 'bi-star-fill' : 'bi-star' }} fs-5"></i>
+                                    class="btn btn-sm p-0 border-0 bg-transparent"
+                                    {{ !$config->is_active ? 'disabled' : '' }}
+                                    title="Сделать основным">
+                                <i class="bi {{ $config->is_main ? 'bi-star-fill text-warning' : 'bi-star text-muted opacity-25' }} fs-5"></i>
                             </button>
 
                             <div class="vr mx-1"></div>

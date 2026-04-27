@@ -12,11 +12,12 @@ class SubscriptionController extends Controller
 {
     public function show($token): JsonResponse
     {
-        // Загружаем подписку со всеми конфигами и флагами
-        $sub = Subscription::with(['configs.flag', 'configs.node'])->where('token', $token)->firstOrFail();
-        $userAgent = request()->header('User-Agent');
+        $sub = Subscription::with(['configs' => function($query) {
+            $query->where('is_active', true);
+        }, 'configs.flag', 'configs.node'])
+            ->where('token', $token)
+            ->firstOrFail();
 
-        Log::info(request()->header('User-Agent'));
         $deviceError = $this->checkDeviceBinding($sub);
         if ($deviceError) {
             return $deviceError;
@@ -28,10 +29,13 @@ class SubscriptionController extends Controller
         }
 
         // Перезагружаем коллекцию после обновления данных в БД
-        $sub->load('configs');
+        $sub->load(['configs' => function($query) {
+            $query->where('is_active', true);
+        }, 'configs.flag', 'configs.node']);
 
         $nodes = [];
         $allOutbounds = [];
+        $mainTag = null;
         $serverNodes = [];
 
         // Переменные для финального заголовка Userinfo
@@ -48,7 +52,9 @@ class SubscriptionController extends Controller
 
             if ($outbound) {
                 $allOutbounds[] = $outbound;
-
+                if ($mainConfig && $conf->id === $mainConfig->id) {
+                    $mainTag = $tag;
+                }
                 $confUp = (int)($conf->up ?? 0);
                 $confDown = (int)($conf->down ?? 0);
                 $confLimit = (int)(($conf->traffic_limit ?? 0) * 1024**3);
@@ -84,8 +90,27 @@ class SubscriptionController extends Controller
         }
 
         if ($sub->with_balancer && count($allOutbounds) > 1) {
-            $balancerTags = array_column($allOutbounds, 'tag');
-            $nodes[] = $this->generateFullConfig("🌐 Auto Balancer", $allOutbounds, $sub->name, $balancerTags);
+            $allTags = array_column($allOutbounds, 'tag');
+
+            $selectorTags = [];
+            $fallbackTag = null;
+
+            if ($mainTag) {
+                $selectorTags = array_values(array_diff($allTags, [$mainTag]));
+
+                $fallbackTag = $mainTag;
+            } else {
+                $selectorTags = $allTags;
+                $fallbackTag = null;
+            }
+
+            $nodes[] = $this->generateFullConfig(
+                "🌐 Auto Balancer",
+                $allOutbounds,
+                $sub->name,
+                $selectorTags,
+                $fallbackTag
+            );
         }
 
         $nodes = array_merge($nodes, $serverNodes);
@@ -212,8 +237,7 @@ class SubscriptionController extends Controller
     }
     private function refreshConfigStats(Config $config): void
     {
-        // Проверяем наличие ноды и email для запроса
-        if (!$config->node || !$config->email) {
+        if (!$config->is_active || !$config->node || !$config->email) {
             return;
         }
 
@@ -318,7 +342,7 @@ class SubscriptionController extends Controller
         ];
     }
 
-    private function generateFullConfig($remarks, $proxyOutbounds, $subName, $balancerTags = null)
+    private function generateFullConfig($remarks, $proxyOutbounds, $subName, $balancerTags = null, $fallbackTag = null)
     {
         $outbounds = $proxyOutbounds;
 
@@ -351,18 +375,23 @@ class SubscriptionController extends Controller
         $balancers = [];
         $observatory = null;
 
-        if ($balancerTags && count($balancerTags) > 1) {
+        if ($balancerTags && count($balancerTags) >= 1) {
 
             $balancers[] = [
                 "tag" => "balancer-main",
                 "selector" => $balancerTags,
                 "strategy" => [
                     "type" => "leastPing"
-                ]
+                ],
+                "fallbackTag" => $fallbackTag
             ];
 
+            $obsSelector = $fallbackTag
+                ? array_unique(array_merge($balancerTags, [$fallbackTag]))
+                : $balancerTags;
+
             $observatory = [
-                "subjectSelector" => $balancerTags,
+                "subjectSelector" => $obsSelector,
                 "probeUrl" => "http://connectivitycheck.gstatic.com/generate_204",
                 "probeInterval" => "20s",
                 "enableConcurrency" => true

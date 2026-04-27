@@ -20,6 +20,7 @@ class Config extends Model
         'expiry_time',
         'flag_id',
         'is_main',
+        'is_active',
         ];
 
     public function subscriptions(): BelongsToMany
