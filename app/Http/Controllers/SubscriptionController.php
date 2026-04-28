@@ -229,7 +229,7 @@ class SubscriptionController extends Controller
                 'Content-Type' => 'text/plain; charset=utf-8',
                 'X-Config-Name' => "ОШИБКА ДОСТУПА",
                 'Profile-Title' => "LIMIT_EXCEEDED",
-                'Subscription-Userinfo' => "upload=0; download=0; total=1; expire=1", // Красивая плашка "Истекло"
+                'Subscription-Userinfo' => "upload=0; download=0; total=1; expire=1",
             ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         }
 
@@ -391,7 +391,7 @@ class SubscriptionController extends Controller
                 : $balancerTags;
 
             $observatory = [
-                "subjectSelector" => $obsSelector,
+                "subjectSelector" => $balancerTags,
                 "probeUrl" => "http://connectivitycheck.gstatic.com/generate_204",
                 "probeInterval" => "20s",
                 "enableConcurrency" => true
