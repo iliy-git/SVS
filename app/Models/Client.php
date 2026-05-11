@@ -17,4 +17,10 @@ class Client extends Model
     {
         return $this->belongsToMany(Subscription::class, 'client_subscription');
     }
+
+    public function scopeSearch($query, $term)
+    {
+        return $query->where('name', 'like', "%{$term}%")
+            ->orWhere('phone', 'like', "%{$term}%");
+    }
 }

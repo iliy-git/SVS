@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\SubscriptionController;
 use App\Models\Setting;
+use Illuminate\Routing\Attributes\Controllers\Middleware;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 
@@ -32,6 +33,8 @@ Route::middleware(['auth', 'verified'])->prefix($adminPrefix)->group(function ()
     Route::livewire('/settings', 'setting-manager')->name('setting-manager');
 
     Route::livewire('/database', 'database-manager')->name('database-manager');
+    Route::livewire('/telegram', 'telegram-settings')->name('telegram-settings');
+    Route::livewire('/telegram/chat', 'telegram-chat')->name('telegram-chat');
 
     Route::livewire('/nodes', 'nodes.index')->name('nodes.index');
     Route::livewire('/nodes/create', 'nodes.create')->name('nodes.create');
@@ -41,4 +44,6 @@ Route::middleware(['auth', 'verified'])->prefix($adminPrefix)->group(function ()
 
 Route::get('/s/{token}', [SubscriptionController::class, 'show'])->name('subscription.raw');
 
+Route::post('/telegram/webhook', [App\Http\Controllers\TelegramWebhookController::class, 'handle'])
+    ->name('telegram.webhook');
 

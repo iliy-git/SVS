@@ -1,7 +1,7 @@
 <?php
 use Livewire\Component;
-use App\Models\Client;
-use Livewire\Attributes\{Computed};
+use Livewire\Attributes\{Computed, Session};
+use App\Services\ClientService;
 
 new class extends Component {
     public $search = '';
@@ -11,17 +11,16 @@ new class extends Component {
 
     #[Computed]
     public function clients() {
-        return Client::withCount('subscriptions')
-            ->where('name', 'like', "%{$this->search}%")
-            ->latest()->get();
+        return app(ClientService::class)->getClientsForIndex($this->search);
+    }
+
+    public function deleteClient($id) {
+        app(ClientService::class)->deleteClient($id);
+        unset($this->clients);
     }
 
     public function setView($mode) {
         $this->view = $mode;
-    }
-
-    public function deleteClient($id) {
-        Client::destroy($id);
     }
 }; ?>
 <style>

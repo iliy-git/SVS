@@ -11,33 +11,24 @@ new class extends Component {
     public $view = 'table';
 
     #[Computed]
-    public function nodes() {
-        return Node::with('flag')
-            ->where('name', 'like', "%{$this->search}%")
-            ->orWhere('ip', 'like', "%{$this->search}%")
-            ->latest()->get();
+    public function nodes()
+    {
+        return app(\App\Services\NodeService::class)->getNodesForIndex($this->search);
     }
 
-    public function setView($mode) { $this->view = $mode; }
-
-    public function deleteNode($id) {
-        Node::destroy($id);
+    public function setView($mode)
+    {
+        $this->view = $mode;
     }
 
-    public function checkConnection($id) {
-        $node = Node::find($id);
-        try {
-            $response = Http::withHeaders(['X-API-KEY' => $node->api_key])
-                ->withoutVerifying()
-                ->timeout(3)->get("https://{$node->ip}:{$node->port}/ping");
+    public function deleteNode($id, \App\Services\NodeService $service)
+    {
+        $service->deleteNode($id);
+    }
 
-            $node->update([
-                'is_active' => ($response->ok() && $response->json('status') === 'ok'),
-                'last_seen' => now()
-            ]);
-        } catch (\Exception $e) {
-            $node->update(['is_active' => false]);
-        }
+    public function checkConnection($id, \App\Services\NodeService $service)
+    {
+        $service->checkHealth($id);
     }
 }; ?>
 

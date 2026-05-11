@@ -1,4 +1,6 @@
 <?php
+
+use App\Services\ClientService;
 use Livewire\Component;
 use App\Models\Client;
 use Livewire\Attributes\Layout;
@@ -6,23 +8,25 @@ use Livewire\Attributes\Layout;
 new  class extends Component {
     public $clientId, $name, $phone, $address, $additional_info;
 
-    public function mount($clientId) {
-        $client = Client::findOrFail($clientId);
+    public function mount($clientId, ClientService $service)
+    {
+        $client = $service->findById($clientId);
         $this->clientId = $client->id;
-        $this->name = $client->name;
-        $this->phone = $client->phone;
-        $this->address = $client->address;
-        $this->additional_info = $client->additional_info;
+
+        $this->fill($client->toArray());
     }
 
-    public function save() {
-        $this->validate(['name' => 'required']);
-        Client::find($this->clientId)->update([
+    public function save(ClientService $service)
+    {
+        $data = [
             'name' => $this->name,
             'phone' => $this->phone,
             'address' => $this->address,
             'additional_info' => $this->additional_info,
-        ]);
+        ];
+
+        $service->updateClient($this->clientId, $data);
+
         return $this->redirectRoute('clients.index', navigate: true);
     }
 }; ?>
@@ -48,10 +52,12 @@ new  class extends Component {
                         </div>
                         <div class="col-12">
                             <label class="form-label small fw-bold">Заметки</label>
-                            <textarea wire:model="additional_info" class="form-control bg-light border-0" rows="3"></textarea>
+                            <textarea wire:model="additional_info" class="form-control bg-light border-0"
+                                      rows="3"></textarea>
                         </div>
                         <div class="col-12 d-flex justify-content-between align-items-center pt-2">
-                            <a href="{{ route('clients.index') }}" wire:navigate class="btn btn-outline-secondary px-4 py-2 fw-bold rounded-3 shadow-sm border-0 bg-white bg-opacity-5">
+                            <a href="{{ route('clients.index') }}" wire:navigate
+                               class="btn btn-outline-secondary px-4 py-2 fw-bold rounded-3 shadow-sm border-0 bg-white bg-opacity-5">
                                 <i class="bi bi-arrow-left me-2"></i>ОТМЕНА
                             </a>
 

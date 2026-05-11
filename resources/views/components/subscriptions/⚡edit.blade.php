@@ -1,4 +1,6 @@
 <?php
+
+use App\Services\SubscriptionService;
 use Livewire\Component;
 use App\Models\Subscription;
 
@@ -10,36 +12,24 @@ new class extends Component {
     public $with_balancer;
     public $expires_at;
 
-    public function mount($clientId, $subId) {
+
+    public function mount($clientId, $subId, SubscriptionService $service)
+    {
         $this->clientId = $clientId;
-        $subscription = Subscription::findOrFail($subId);
 
-        $this->subId = $subscription->id;
-        $this->name = $subscription->name;
-        $this->token = $subscription->token;
-        $this->with_balancer = (bool)$subscription->with_balancer;
-
-        $this->expires_at = $subscription->expires_at ? $subscription->expires_at->format('Y-m-d') : '';
+        $this->fill($service->getFormData($subId));
     }
 
-    public function save() {
-        $this->validate([
-            'name' => 'required|min:3',
-            'token' => 'required|unique:subscriptions,token,' . $this->subId,
-            'with_balancer' => 'boolean',
+    public function save(SubscriptionService $service)
+    {
+        $validated = $service->validate($this->all(), $this->subId);
 
-        ]);
-
-        Subscription::find($this->subId)->update([
-            'name' => $this->name,
-            'token' => $this->token,
-            'with_balancer' => $this->with_balancer,
-            'expires_at' => $this->expires_at ?: null,
-        ]);
+        $service->updateSubscription($this->subId, $validated);
 
         return $this->redirectRoute('subscriptions.index', ['clientId' => $this->clientId], navigate: true);
     }
-}; ?>
+
+};?>
 
 <div class="row justify-content-center animate__animated animate__fadeIn">
     <div class="col-md-6">

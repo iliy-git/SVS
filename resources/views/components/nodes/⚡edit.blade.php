@@ -1,40 +1,29 @@
 <?php
+
+use App\Services\NodeService;
 use Livewire\Component;
 use App\Models\Node;
 use App\Models\Flag;
 
 new class extends Component {
-    public $nodeId, $name, $ip, $port, $api_key, $flag_id;
+    public $nodeId;
+    public $name, $ip, $port, $api_key, $flag_id;
+
     public $flags;
 
-    public function mount($nodeId) {
+    public function mount($nodeId)
+    {
         $node = Node::findOrFail($nodeId);
         $this->nodeId = $node->id;
-        $this->name = $node->name;
-        $this->ip = $node->ip;
-        $this->port = $node->port;
-        $this->api_key = $node->api_key;
-        $this->flag_id = $node->flag_id;
 
+        $this->fill($node->toArray());
         $this->flags = Flag::all();
     }
 
-    public function save() {
-        $this->validate([
-            'name' => 'required|min:2',
-            'ip' => 'required|ip',
-            'port' => 'required|numeric',
-            'api_key' => 'required',
-            'flag_id' => 'required|exists:flags,id'
-        ]);
-
-        Node::find($this->nodeId)->update([
-            'name' => $this->name,
-            'ip' => $this->ip,
-            'port' => $this->port,
-            'api_key' => $this->api_key,
-            'flag_id' => $this->flag_id,
-        ]);
+    public function save(NodeService $service)
+    {
+        $validated = $service->validate($this->all(), $this->nodeId);
+        $service->updateNode($this->nodeId, $validated);
 
         return $this->redirectRoute('nodes.index', navigate: true);
     }
@@ -48,9 +37,11 @@ new class extends Component {
                 <form wire:submit.prevent="save">
 
                     <div class="mb-5">
-                        <label class="form-label small fw-bold text-secondary mb-3 text-uppercase" style="letter-spacing: 1px;">Локация сервера</label>
+                        <label class="form-label small fw-bold text-secondary mb-3 text-uppercase"
+                               style="letter-spacing: 1px;">Локация сервера</label>
 
-                        <div class="d-flex flex-wrap gap-2 overflow-auto py-2 px-1 custom-scrollbar" style="max-height: 250px;">
+                        <div class="d-flex flex-wrap gap-2 overflow-auto py-2 px-1 custom-scrollbar"
+                             style="max-height: 250px;">
                             @foreach($flags as $flag)
                                 <label class="m-0 cursor-pointer position-relative">
                                     <input type="radio"
@@ -58,18 +49,22 @@ new class extends Component {
                                            value="{{ $flag->id }}"
                                            class="d-none">
 
-                                    <div class="flag-box {{ $flag_id == $flag->id ? 'active' : '' }} d-flex flex-column justify-content-center align-items-center">
+                                    <div
+                                        class="flag-box {{ $flag_id == $flag->id ? 'active' : '' }} d-flex flex-column justify-content-center align-items-center">
 
                                         @if($flag_id == $flag->id)
                                             <div class="position-absolute top-0 end-0 p-1">
-                                                <i class="bi bi-check-circle-fill text-primary" style="font-size: 0.8rem;"></i>
+                                                <i class="bi bi-check-circle-fill text-primary"
+                                                   style="font-size: 0.8rem;"></i>
                                             </div>
                                         @endif
 
-                                        <div class="flag-img-container mb-2 d-flex align-items-center justify-content-center">
-                                            <img src="https://purecatamphetamine.github.io/country-flag-icons/3x2/{{ strtoupper($flag->code) }}.svg"
-                                                 alt="{{ $flag->name }}"
-                                                 class="rounded-1 shadow-sm flag-img">
+                                        <div
+                                            class="flag-img-container mb-2 d-flex align-items-center justify-content-center">
+                                            <img
+                                                src="https://purecatamphetamine.github.io/country-flag-icons/3x2/{{ strtoupper($flag->code) }}.svg"
+                                                alt="{{ $flag->name }}"
+                                                class="rounded-1 shadow-sm flag-img">
                                         </div>
 
                                         <div class="small text-truncate w-100 text-center flag-label">
@@ -79,30 +74,40 @@ new class extends Component {
                                 </label>
                             @endforeach
                         </div>
-                        @error('flag_id') <span class="text-danger small mt-2 d-block">Пожалуйста, выберите локацию</span> @enderror
+                        @error('flag_id') <span
+                            class="text-danger small mt-2 d-block">Пожалуйста, выберите локацию</span> @enderror
                     </div>
 
                     <div class="row g-4">
                         <div class="col-12">
-                            <label class="form-label small fw-bold text-secondary text-uppercase">Название сервера</label>
-                            <input type="text" wire:model="name" class="form-control bg-dark border-0 text-white py-2 shadow-none border-focus border border-white border-opacity-5" placeholder="Напр: Германия #1">
+                            <label class="form-label small fw-bold text-secondary text-uppercase">Название
+                                сервера</label>
+                            <input type="text" wire:model="name"
+                                   class="form-control bg-dark border-0 text-white py-2 shadow-none border-focus border border-white border-opacity-5"
+                                   placeholder="Напр: Германия #1">
                             @error('name') <span class="text-danger small">{{ $message }}</span> @enderror
                         </div>
 
                         <div class="col-md-8">
                             <label class="form-label small fw-bold text-secondary text-uppercase">IP Адрес</label>
-                            <input type="text" wire:model="ip" class="form-control bg-dark border-0 text-white py-2 shadow-none border-focus border border-white border-opacity-5" placeholder="0.0.0.0">
+                            <input type="text" wire:model="ip"
+                                   class="form-control bg-dark border-0 text-white py-2 shadow-none border-focus border border-white border-opacity-5"
+                                   placeholder="0.0.0.0">
                             @error('ip') <span class="text-danger small">{{ $message }}</span> @enderror
                         </div>
                         <div class="col-md-4">
                             <label class="form-label small fw-bold text-secondary text-uppercase">API Порт</label>
-                            <input type="text" wire:model="port" class="form-control bg-dark border-0 text-white py-2 shadow-none border-focus border border-white border-opacity-5" placeholder="11223">
+                            <input type="text" wire:model="port"
+                                   class="form-control bg-dark border-0 text-white py-2 shadow-none border-focus border border-white border-opacity-5"
+                                   placeholder="11223">
                             @error('port') <span class="text-danger small">{{ $message }}</span> @enderror
                         </div>
 
                         <div class="col-12">
                             <label class="form-label small fw-bold text-secondary text-uppercase">X-API-KEY</label>
-                            <div class="input-group bg-dark rounded-3 overflow-hidden border border-white border-opacity-5" x-data="{ show: false }">
+                            <div
+                                class="input-group bg-dark rounded-3 overflow-hidden border border-white border-opacity-5"
+                                x-data="{ show: false }">
                                 <span class="input-group-text bg-transparent border-0 text-muted">
                                     <i class="bi bi-shield-lock"></i>
                                 </span>
@@ -122,8 +127,10 @@ new class extends Component {
                         </div>
                     </div>
 
-                    <div class="d-flex justify-content-between align-items-center mt-5 pt-3 border-top border-secondary border-opacity-10">
-                        <a href="{{ route('nodes.index') }}" wire:navigate class="btn btn-link text-secondary text-decoration-none fw-bold p-0 transition-all hover-light">
+                    <div
+                        class="d-flex justify-content-between align-items-center mt-5 pt-3 border-top border-secondary border-opacity-10">
+                        <a href="{{ route('nodes.index') }}" wire:navigate
+                           class="btn btn-link text-secondary text-decoration-none fw-bold p-0 transition-all hover-light">
                             <i class="bi bi-arrow-left me-2"></i>ОТМЕНА
                         </a>
                         <button type="submit" class="btn btn-primary px-5 py-2 fw-bold rounded-3 shadow-sm">

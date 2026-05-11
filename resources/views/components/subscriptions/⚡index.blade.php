@@ -1,7 +1,7 @@
 <?php
 use Livewire\Component;
-use App\Models\Client;
-use App\Models\Subscription;
+use App\Services\ClientService;
+use App\Services\SubscriptionService;
 use Livewire\Attributes\Computed;
 
 new class extends Component {
@@ -11,37 +11,46 @@ new class extends Component {
         $this->clientId = $clientId;
     }
 
+    /**
+     * Ожидается фронтендом как $this->client
+     */
     #[Computed]
     public function client() {
-        return Client::with('subscriptions')->findOrFail($this->clientId);
+        // Используем сервис для получения клиента с подписками
+        return app(ClientService::class)->findWithSubscriptions($this->clientId);
     }
 
-        public function getHappUrl($subscriptionId) {
-            $sub = Subscription::find($subscriptionId);
+    /**
+     * Ожидается фронтендом внутри цикла @forelse
+     */
+    public function getHappUrl($subscriptionId) {
+        // Используем сервис для получения ссылки
+        // Если ссылки нет в БД, сервис её сгенерирует и вернет
+        return app(SubscriptionService::class)->getHappUrl($subscriptionId);
+    }
 
-            if (!$sub) return '';
-
-            if (!empty($sub->happ_url)) {
-                return $sub->happ_url;
-            }
-
-            $happUrl = (new \App\Http\Controllers\SubscriptionController())->getHappLink($sub->token);
-
-            $sub->update(['happ_url' => $happUrl]);
-//            dd($sub, $happUrl);
-            return $happUrl;
-        }
-
+    /**
+     * Ожидается фронтендом при клике на "Удалить"
+     */
     public function deleteSubscription($id) {
-        $sub = Subscription::findOrFail($id);
-        $sub->delete();
+        app(SubscriptionService::class)->deleteSubscription($id);
+
+        // Сбрасываем кеш Computed-свойства, чтобы фронт обновил список
+        unset($this->client);
     }
 
+    /**
+     * Ожидается фронтендом при клике на "Сбросить устройство"
+     */
     public function resetDevices($id) {
-        $sub = Subscription::findOrFail($id);
-        $sub->update(['device_id' => null]);
+        app(SubscriptionService::class)->resetDevice($id);
 
-        $this->dispatch('notify', ['message' => 'Устройства сброшены', 'type' => 'success']);
+        unset($this->client);
+
+        $this->dispatch('notify', [
+            'message' => 'Устройства сброшены',
+            'type' => 'success'
+        ]);
     }
 }; ?>
 

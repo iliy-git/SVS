@@ -1,51 +1,51 @@
 <?php
 
-use App\Http\Controllers\SubscriptionController;
+use App\Services\SubscriptionService;
 use Livewire\Component;
 use App\Models\Subscription;
 use App\Models\Client;
 
 new class extends Component {
+    /**
+     * Свойства компонента
+     */
     public $clientId;
     public $name = '';
     public $token = '';
     public $with_balancer = true;
     public $expires_at;
 
+    /**
+     * Инициализация
+     */
     public function mount($clientId)
     {
         $this->clientId = $clientId;
         $this->generateToken();
     }
 
+    /**
+     * Генерация токена
+     */
     public function generateToken()
     {
         $this->token = bin2hex(random_bytes(16));
     }
 
-    public function save()
+    /**
+     * Сохранение через сервис (в стиле клиентов)
+     */
+    public function save(SubscriptionService $service)
     {
-        $this->validate([
-            'name' => 'required|min:3',
-            'token' => 'required|unique:subscriptions,token',
-            'with_balancer' => 'boolean',
-        ]);
+        // 1. Валидация через сервис.
+        // Если данные не пройдут проверку, Laravel выбросит ValidationException,
+        // который Livewire поймает и отобразит в @error
+        $validated = $service->validate($this->all());
 
-        $subscription = Subscription::create([
-            'name' => $this->name,
-            'token' => $this->token,
-            'with_balancer' => $this->with_balancer,
-            'expires_at' => $this->expires_at ?: null,
-        ]);
-        $happUrl = (new SubscriptionController())->getHappLink($subscription->token);
+        // 2. Вызов метода создания в сервисе
+        $service->createForClient($this->clientId, $validated);
 
-        $subscription->update([
-            'happ_url' => $happUrl
-        ]);
-
-        $client = Client::findOrFail($this->clientId);
-        $client->subscriptions()->attach($subscription->id);
-
+        // 3. Редирект
         return $this->redirectRoute('subscriptions.index', ['clientId' => $this->clientId], navigate: true);
     }
 }; ?>

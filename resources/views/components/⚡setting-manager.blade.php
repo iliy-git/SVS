@@ -1,11 +1,7 @@
 <?php
 
+use App\Services\SettingService;
 use Livewire\Component;
-use App\Models\Setting;
-use App\Models\User;
-use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 new class extends Component {
@@ -15,9 +11,9 @@ new class extends Component {
     public $email;
     public $password;
 
-    public function mount()
+    public function mount(SettingService $service)
     {
-        $this->admin_path = Setting::where('key', 'admin_uuid')->value('value') ?? 'admin-panel';
+        $this->admin_path = $service->getAdminPath();
         $this->admin_port = env('ADMIN_PORT', 8001);
         $this->email = auth()->user()->email;
     }
@@ -37,44 +33,17 @@ new class extends Component {
         $this->password = Str::random(16);
     }
 
-    protected function updateEnv($key, $value)
+    public function save(SettingService $service)
     {
-        $path = base_path('.env');
-        if (File::exists($path)) {
-            $content = File::get($path);
-            if (str_contains($content, "{$key}=")) {
-                $newContent = preg_replace("/^{$key}=.*/m", "{$key}={$value}", $content);
-            } else {
-                $newContent = $content . "\n{$key}={$value}";
-            }
-            File::put($path, $newContent);
-        }
-    }
+        // 1. Валидация через сервис
+        $validated = $service->validate($this->all(), auth()->id());
 
-    public function save()
-    {
-        $this->validate([
-            'admin_path' => 'required|alpha_dash|min:3',
-            'admin_port' => 'required|numeric|min:1024|max:65535',
-            'email'      => 'required|email|unique:users,email,' . auth()->id(),
-            'password'   => 'nullable|min:8'
-        ]);
-
-        Setting::updateOrCreate(['key' => 'admin_uuid'], ['value' => $this->admin_path]);
-        $this->updateEnv('ADMIN_PORT', $this->admin_port);
-
-        $user = auth()->user();
-        $user->email = $this->email;
-        if ($this->password) {
-            $user->password = Hash::make($this->password);
-        }
-        $user->save();
-
-        Artisan::call('route:clear');
-        Artisan::call('view:clear');
+        // 2. Выполнение логики обновления
+        $service->updateSystemSettings(auth()->user(), $validated);
 
         session()->flash('success', 'Настройки успешно обновлены!');
 
+        // 3. Редирект на новый путь (navigate: true здесь может не сработать из-за смены роутов)
         return redirect()->to('/' . $this->admin_path . '/settings');
     }
 }; ?>

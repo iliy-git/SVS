@@ -340,6 +340,12 @@
                 <i class="bi bi-server"></i> Ноды
             </a>
         </li>
+        <li>
+            <a href="{{ route('telegram-settings') }}" wire:navigate
+               class="nav-item-link {{ request()->routeIs('telegram-settings') ? 'active' : '' }}">
+                <i class="bi bi-send-check"></i> Telegram API
+            </a>
+        </li>
     </ul>
 
 

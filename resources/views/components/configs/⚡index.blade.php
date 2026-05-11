@@ -1,67 +1,44 @@
 <?php
 
 use App\Models\Flag;
+use App\Services\ConfigService;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use App\Models\Subscription;
 use App\Models\Config;
 
 new class extends Component {
-    public $clientId;
-    public $subId;
-    public $flag;
+    public $clientId, $subId;
     public $subscription;
 
-    public function mount($clientId, $subId)
+    public function mount($clientId, $subId, ConfigService $service)
     {
         $this->clientId = $clientId;
         $this->subId = $subId;
-
-        $this->loadSubscription();
-    }
-    public function loadSubscription()
-    {
-        $this->subscription = Subscription::with(['configs' => function($query) {
-            $query->orderByDesc('is_active')
-            ->orderByDesc('is_main');
-        }, 'configs.flag'])
-            ->findOrFail($this->subId);
+        $this->loadData($service);
     }
 
-    public function deleteConfig($id)
+    public function loadData(ConfigService $service)
     {
-        $config = Config::findOrFail($id);
-        $config->delete();
-        $this->loadSubscription();
+        $this->subscription = $service->getSubscriptionWithConfigs($this->subId);
     }
 
-    public function getFlagByID($id)
+    public function deleteConfig($id, ConfigService $service)
     {
-        return Flag::where('id', $id)->first();
+        $service->deleteConfig($id);
+        $this->loadData($service);
     }
 
-    public function setMainConfig($configId)
+    public function setMainConfig($configId, ConfigService $service)
     {
-        foreach ($this->subscription->configs as $config) {
-
-            if ($config->id == $configId) {
-                $newValue = !$config->is_main;
-                $config->update(['is_main' => $newValue]);
-            } else {
-                if ($config->is_main) {
-                    $config->update(['is_main' => false]);
-                }
-            }
-        }
-
-        $this->loadSubscription();
+        $service->setMain($this->subId, $configId);
+        $this->loadData($service);
     }
-    public function toggleActive($configId)
-    {
-        $config = Config::findOrFail($configId);
-        $config->update(['is_active' => !$config->is_active]);
 
-        $this->loadSubscription();
+    public function toggleActive($configId, ConfigService $service)
+    {
+        $service->toggleActive($configId);
+        $this->loadData($service);
     }
 }; ?>
 
@@ -93,16 +70,20 @@ new class extends Component {
         @forelse($this->subscription->configs as $config)
             <div class="col-12" wire:key="config-{{ $config->id }}-{{ $config->is_active }}-{{ $config->is_main }}">
                 {{-- Добавляем opacity-75 и grayscale для неактивных --}}
-                <div class="card border-0 shadow-sm rounded-4 {{ $config->is_main ? 'border-start border-primary border-4' : '' }} {{ !$config->is_active ? 'opacity-75 bg-light' : '' }}"
-                     style="{{ !$config->is_active ? 'filter: grayscale(0.8);' : '' }} transition: all 0.3s ease;">
+                <div
+                    class="card border-0 shadow-sm rounded-4 {{ $config->is_main ? 'border-start border-primary border-4' : '' }} {{ !$config->is_active ? 'opacity-75 bg-light' : '' }}"
+                    style="{{ !$config->is_active ? 'filter: grayscale(0.8);' : '' }} transition: all 0.3s ease;">
 
                     <div class="card-body d-flex justify-content-between align-items-center p-3">
                         <div class="d-flex align-items-center">
                             {{-- Флаг --}}
-                            <div class="bg-dark rounded-3 me-3 text-white d-flex align-items-center justify-content-center"
-                                 style="width: 45px; height: 30px; overflow: hidden;">
+                            <div
+                                class="bg-dark rounded-3 me-3 text-white d-flex align-items-center justify-content-center"
+                                style="width: 45px; height: 30px; overflow: hidden;">
                                 @if($config->flag)
-                                    <img src="https://purecatamphetamine.github.io/country-flag-icons/3x2/{{ strtoupper($config->flag->code) }}.svg" class="w-100">
+                                    <img
+                                        src="https://purecatamphetamine.github.io/country-flag-icons/3x2/{{ strtoupper($config->flag->code) }}.svg"
+                                        class="w-100">
                                 @else
                                     <i class="bi bi-geo-alt"></i>
                                 @endif
@@ -112,13 +93,16 @@ new class extends Component {
                                 <h6 class="fw-bold mb-0 {{ $config->is_active ? 'text-dark' : 'text-muted' }}">
                                     {{ $config->name ?: $config->email }}
                                     @if($config->is_main)
-                                        <span class="badge bg-primary-subtle text-primary ms-2" style="font-size: 10px;">MAIN</span>
+                                        <span class="badge bg-primary-subtle text-primary ms-2"
+                                              style="font-size: 10px;">MAIN</span>
                                     @endif
                                     @if(!$config->is_active)
-                                        <span class="badge bg-secondary-subtle text-secondary ms-2" style="font-size: 10px;">OFF</span>
+                                        <span class="badge bg-secondary-subtle text-secondary ms-2"
+                                              style="font-size: 10px;">OFF</span>
                                     @endif
                                 </h6>
-                                <small class="text-muted text-truncate d-inline-block" style="max-width: 250px;">{{ $config->link }}</small>
+                                <small class="text-muted text-truncate d-inline-block"
+                                       style="max-width: 250px;">{{ $config->link }}</small>
                             </div>
                         </div>
 
