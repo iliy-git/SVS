@@ -13,99 +13,81 @@ class TelegramWebhookController extends Controller
         $message = $request->input('message');
         if (!$message) return;
 
-        $tgId = (string)$message['from']['id'];
+        $tgId = $message['from']['id'];
         $botToken = env('TELEGRAM_BOT_TOKEN');
         $adminChatId = env('TELEGRAM_CHAT_ID');
 
-        // --- 1. ЛОГИКА ОТВЕТА АДМИНА ПОЛЬЗОВАТЕЛЮ ---
-        if ($tgId == $adminChatId && isset($message['reply_to_message'])) {
+        // 1. Логика ответа (Reply)
+        if (isset($message['reply_to_message'])) {
             $replyTo = $message['reply_to_message'];
             $replyText = $replyTo['text'] ?? $replyTo['caption'] ?? '';
 
-            // Извлекаем ID пользователя из текста сообщения, на которое отвечаем
             if (preg_match('/🆔\s*(\d+)/u', $replyText, $matches)) {
                 $targetUserId = $matches[1];
 
-                // Определяем, что именно отправил админ (текст или медиа)
-                $this->sendToUser($botToken, $targetUserId, $message);
-
-                return; // Выходим, чтобы не дублировать в группу
+                // Вызываем универсальную отправку пользователю
+                $this->sendTelegram($botToken, $targetUserId, $message);
+                return;
             }
         }
 
-        // --- 2. ИГНОРИРУЕМ ОБЫЧНЫЕ СООБЩЕНИЯ ОТ АДМИНА (не реплаи) ---
+        // 2. Если пишет админ не через Reply — игнорируем
         if ($tgId == $adminChatId) return;
 
-        // --- 3. ЛОГИКА ПРИЕМА СООБЩЕНИЯ ОТ ПОЛЬЗОВАТЕЛЯ ---
+        // 3. Логика получения сообщения от пользователя
         $firstName = $message['from']['first_name'] ?? 'User';
         $user = TelegramUser::updateOrCreate(
             ['telegram_id' => $tgId],
             ['first_name' => $firstName, 'last_message_at' => now()]
         );
 
-        // Пересылка админу с сохранением типа медиа
-        $this->forwardToAdmin($botToken, $adminChatId, $message, $tgId, $firstName);
+        $text = $message['text'] ?? $message['caption'] ?? '';
+        $user->messages()->create(['text' => $text ?: '[Файл]', 'is_from_bot' => false]);
+
+        $userLink = isset($message['from']['username'])
+            ? "@" . $message['from']['username']
+            : $firstName;
+
+        $info = "📩 <b>Новое от:</b> {$userLink}\n🆔 {$tgId}";
+
+        // Пересылаем сообщение админу (с сохранением картинки/документа)
+        $this->sendTelegram($botToken, $adminChatId, $message, $info);
     }
 
     /**
-     * Отправка ответа от админа конкретному пользователю
+     * Универсальный метод для отправки текста или медиафайлов
      */
-    private function sendToUser($token, $userId, $message)
+    private function sendTelegram($token, $chatId, $message, $infoPrefix = '')
     {
         $text = $message['text'] ?? $message['caption'] ?? '';
-        $method = 'sendMessage';
-        $params = ['chat_id' => $userId];
+        $caption = $infoPrefix ? $infoPrefix . "\n───\n" . $text : $text;
 
-        if (isset($message['photo'])) {
-            $method = 'sendPhoto';
-            $params['photo'] = end($message['photo'])['file_id'];
-            $params['caption'] = $text;
-        } elseif (isset($message['video'])) {
-            $method = 'sendVideo';
-            $params['video'] = $message['video']['file_id'];
-            $params['caption'] = $text;
-        } elseif (isset($message['voice'])) {
-            $method = 'sendVoice';
-            $params['voice'] = $message['voice']['file_id'];
-            $params['caption'] = $text;
-        } elseif (isset($message['document'])) {
-            $method = 'sendDocument';
-            $params['document'] = $message['document']['file_id'];
-            $params['caption'] = $text;
-        } else {
-            $params['text'] = $text;
-        }
-
-        Http::post("https://api.telegram.org/bot{$token}/{$method}", $params);
-    }
-
-    /**
-     * Пересылка сообщения пользователя в админ-чат
-     */
-    private function forwardToAdmin($token, $adminId, $message, $userId, $firstName)
-    {
-        $userLink = isset($message['from']['username']) ? "@" . $message['from']['username'] : $firstName;
-        $caption = "📩 <b>Новое от:</b> {$userLink}\n🆔 {$userId}\n───\n";
-        $text = $message['text'] ?? $message['caption'] ?? '';
-
-        $method = 'sendMessage';
         $params = [
-            'chat_id' => $adminId,
+            'chat_id' => $chatId,
             'parse_mode' => 'HTML'
         ];
 
         if (isset($message['photo'])) {
             $method = 'sendPhoto';
             $params['photo'] = end($message['photo'])['file_id'];
-            $params['caption'] = $caption . $text;
+            $params['caption'] = $caption;
+        } elseif (isset($message['document'])) {
+            $method = 'sendDocument';
+            $params['document'] = $message['document']['file_id'];
+            $params['caption'] = $caption;
         } elseif (isset($message['video'])) {
             $method = 'sendVideo';
             $params['video'] = $message['video']['file_id'];
-            $params['caption'] = $caption . $text;
+            $params['caption'] = $caption;
+        } elseif (isset($message['voice'])) {
+            $method = 'sendVoice';
+            $params['voice'] = $message['voice']['file_id'];
+            $params['caption'] = $caption;
         } else {
-            $params['text'] = $caption . "📝 <b>Текст:</b>\n<i>{$text}</i>";
+            $method = 'sendMessage';
+            $params['text'] = $caption;
         }
 
-        Http::post("https://api.telegram.org/bot{$token}/{$method}", $params);
+        return Http::post("https://api.telegram.org/bot{$token}/{$method}", $params);
     }
 }
