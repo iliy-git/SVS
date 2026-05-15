@@ -245,7 +245,7 @@ class SubscriptionController extends Controller
             $response = Http::withHeaders([
                 'X-API-KEY' => $config->node->api_key
             ])
-                ->timeout(2)
+                ->timeout(3) // Рекомендуется поднять до 3 секунд, так как скрипт теперь делает чуть больше работы в БД
                 ->withoutVerifying()
                 ->get("https://{$config->node->ip}:11223/email", [
                     'email' => $config->email
@@ -254,19 +254,30 @@ class SubscriptionController extends Controller
             if ($response->ok()) {
                 $data = $response->json();
 
-                $config->update([
+                $updateData = [
                     'up'    => $data['up'] ?? $config->up,
                     'down'  => $data['down'] ?? $config->down,
-                    // Если x-ui отдает total (лимит), сохраняем его
                     'traffic_limit' => isset($data['total']) && $data['total'] > 0
                         ? ($data['total'] / (1024**3))
                         : $config->traffic_limit,
                     'expiry_time'   => $data['expiry_time'] ?? $config->expiry_time,
-                ]);
+                ];
+
+                // Проверяем, пришел ли линк и не пустой ли он, чтобы не затереть БД ошибкой
+                if (!empty($data['link'])) {
+                    $updateData['link'] = $data['link'];
+                }
+                \Log::info($updateData);
+
+                // Дополнительно: обновляем статус активности из панели (описано ниже)
+                if (isset($data['is_active'])) {
+                    $updateData['is_active'] = (bool)$data['is_active'];
+                }
+
+                $config->update($updateData);
             }
         } catch (\Exception $e) {
-            // В случае ошибки просто логируем или игнорируем, чтобы не прерывать выдачу подписки
-            \Log::error("Failed to refresh stats for {$config->email} on node {$config->node->ip}: " . $e->getMessage());
+            \Log::error("Failed to refresh stats and link for {$config->email} on node {$config->node->ip}: " . $e->getMessage());
         }
     }
 
