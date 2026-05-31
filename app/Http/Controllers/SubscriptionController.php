@@ -324,12 +324,26 @@ class SubscriptionController extends Controller
             $userData["flow"] = $query['flow'];
         }
 
-        // Определяем тип транспорта (по умолчанию tcp)
-        $networkType = isset($query['type']) && $query['type'] === 'grpc' ? 'grpc' : 'tcp';
+        // Определяем тип транспорта (tcp, grpc или ws)
+        $networkType = $query['type'] ?? 'tcp';
+        if (!in_array($networkType, ['tcp', 'grpc', 'ws'])) {
+            $networkType = 'tcp'; // фолбек на дефолт
+        }
+
+        // Определяем безопасность (reality, tls или none)
+        $security = $query['security'] ?? 'none';
+        if ($security === 'none' || empty($security)) {
+            $security = 'none';
+        }
 
         $streamSettings = [
             "network" => $networkType,
-            "realitySettings" => [
+            "security" => $security,
+        ];
+
+        // Собираем настройки безопасности, если это Reality
+        if ($security === 'reality') {
+            $streamSettings["realitySettings"] = [
                 "allowInsecure" => false,
                 "fingerprint" => "chrome",
                 "publicKey" => $query['pbk'] ?? "",
@@ -337,18 +351,39 @@ class SubscriptionController extends Controller
                 "shortId" => $query['sid'] ?? "",
                 "show" => false,
                 "spiderX" => "/"
-            ],
-            "security" => "reality",
-        ];
+            ];
+        }
+        // Собираем настройки безопасности, если это обычный TLS (для WS за CDN)
+        elseif ($security === 'tls') {
+            $streamSettings["tlssettings"] = [
+                "allowInsecure" => false,
+                "serverName" => $query['sni'] ?? $query['host'] ?? ""
+            ];
+        }
 
         // Добавляем специфичные настройки в зависимости от транспорта
         if ($networkType === 'grpc') {
             $streamSettings["grpcSettings"] = [
                 "authority" => $query['sni'] ?? "",
-                "multiMode" => true, // Включаем по умолчанию для стабильности
+                "multiMode" => true,
                 "serviceName" => $query['serviceName'] ?? ""
             ];
-        } else {
+        }
+        // --- ДОБАВЛЯЕМ ПОДДЕРЖКУ WEBSOCKET ---
+        elseif ($networkType === 'ws') {
+            $streamSettings["wsSettings"] = [
+                "headers" => [
+                    "Host" => !empty($query['host']) ? $query['host'] : ($query['sni'] ?? "")
+                ],
+                "path" => !empty($query['path']) ? rawurldecode($query['path']) : "/"
+            ];
+
+            // Если заголовки пустые, можно вырезать блок headers, чтобы не слать пустой массив
+            if (empty($streamSettings["wsSettings"]["headers"]["Host"])) {
+                unset($streamSettings["wsSettings"]["headers"]);
+            }
+        }
+        else {
             $streamSettings["tcpSettings"] = ["header" => ["type" => "none"]];
         }
 
