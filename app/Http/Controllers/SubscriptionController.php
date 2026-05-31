@@ -320,9 +320,36 @@ class SubscriptionController extends Controller
             "security" => "auto",
         ];
 
-
         if (!empty($query['flow'])) {
             $userData["flow"] = $query['flow'];
+        }
+
+        // Определяем тип транспорта (по умолчанию tcp)
+        $networkType = isset($query['type']) && $query['type'] === 'grpc' ? 'grpc' : 'tcp';
+
+        $streamSettings = [
+            "network" => $networkType,
+            "realitySettings" => [
+                "allowInsecure" => false,
+                "fingerprint" => "chrome",
+                "publicKey" => $query['pbk'] ?? "",
+                "serverName" => $query['sni'] ?? "",
+                "shortId" => $query['sid'] ?? "",
+                "show" => false,
+                "spiderX" => "/"
+            ],
+            "security" => "reality",
+        ];
+
+        // Добавляем специфичные настройки в зависимости от транспорта
+        if ($networkType === 'grpc') {
+            $streamSettings["grpcSettings"] = [
+                "authority" => $query['sni'] ?? "",
+                "multiMode" => true, // Включаем по умолчанию для стабильности
+                "serviceName" => $query['serviceName'] ?? ""
+            ];
+        } else {
+            $streamSettings["tcpSettings"] = ["header" => ["type" => "none"]];
         }
 
         return [
@@ -335,20 +362,7 @@ class SubscriptionController extends Controller
                     "users" => [$userData]
                 ]]
             ],
-            "streamSettings" => [
-                "network" => "tcp",
-                "realitySettings" => [
-                    "allowInsecure" => false,
-                    "fingerprint" => "chrome",
-                    "publicKey" => $query['pbk'] ?? "",
-                    "serverName" => $query['sni'] ?? "",
-                    "shortId" => $query['sid'] ?? "",
-                    "show" => false,
-                    "spiderX" => "/"
-                ],
-                "security" => "reality",
-                "tcpSettings" => ["header" => ["type" => "none"]]
-            ],
+            "streamSettings" => $streamSettings,
             "tag" => $tag
         ];
     }
@@ -424,7 +438,7 @@ class SubscriptionController extends Controller
         $observatory = null;
 
         if ($balancerTags && count($balancerTags) >= 1) {
-
+            // Блок балансировщика оставляем как был
             $balancers[] = [
                 "tag" => "balancer-main",
                 "selector" => $balancerTags,
@@ -452,26 +466,27 @@ class SubscriptionController extends Controller
             ]);
 
         } else {
-            $mainTag = $proxyOutbounds[0]['tag'];
+            // Динамически берем tag текущего обрабатываемого прокси
+            $currentProxyTag = $proxyOutbounds[0]['tag'] ?? 'proxy-1';
 
             $rules[] = [
                 "type" => "field",
                 "inboundTag" => ["socks"],
                 "port" => "53",
-                "outboundTag" => $mainTag
+                "outboundTag" => $currentProxyTag
             ];
 
             $rules[] = [
                 "type" => "field",
                 "ip" => ["1.1.1.1"],
                 "port" => "53",
-                "outboundTag" => $mainTag
+                "outboundTag" => $currentProxyTag
             ];
 
             $rules[] = [
                 "type" => "field",
                 "network" => "tcp,udp",
-                "outboundTag" => $mainTag
+                "outboundTag" => $currentProxyTag
             ];
         }
 
