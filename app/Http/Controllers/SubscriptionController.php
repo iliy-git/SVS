@@ -118,15 +118,42 @@ class SubscriptionController extends Controller
         $safeSubName = str_replace(['"', "'", "\n", "\r"], '', $sub->name);
         $expireTimestamp = $sub->expires_at ? $sub->expires_at->timestamp : 0;
 
-        // Формируем заголовок для прогресс-бара Happ
         $userInfo = "upload={$totalUpBytes}; download={$totalDownBytes}; total={$totalLimitBytes}; expire={$expireTimestamp}";
+
+        // 1. Номер подписки прямо в главном названии, чтобы он всегда был перед глазами
+        $profileTitle = "{$safeSubName}";
+
+        // 2. Формируем подробный текст с переносами строк (\n)
+        // Этот текст будет доступен в информационном блоке заголовка
+        $infoText = trim("
+📦 ВАША ПОДПИСКА №{$sub->id}
+━━━━━━━━━━━━━━━━━
+🆘 ВОЗНИКЛИ ПРОБЛЕМЫ ИЛИ ВОПРОСЫ?
+💬 НАПИШИТЕ НАМ В TELEGRAM
+🚀 МЫ ОПЕРАТИВНО ПОМОЖЕМ ВАМ!
+");
+
+// Кодируем в Base64 без лишних пробелов
+        $encodedAnnounce = "base64:" . base64_encode($infoText);
 
         return response()->json($nodes, 200, [
             'Content-Type' => 'text/plain; charset=utf-8',
-            'X-Config-Name' => $safeSubName,
-            'Profile-Title' => $safeSubName,
+
+            // Название подписки (в самом верху интерфейса)
+            'X-Config-Name' => $profileTitle,
+            'Profile-Title' => $profileTitle,
+
+            // Статистика трафика
             'Subscription-Userinfo' => $userInfo,
             'Profile-Update-Interval' => '2',
+
+            // Кнопка-ссылка на Telegram (самолетик или глобус в клиенте)
+            'Profile-WebPageUrl' => 'https://t.me/+DyqjfDZNgYY4NjNi',
+            'Support-Url' => 'https://t.me/+DyqjfDZNgYY4NjNi',
+
+            // Тот самый текст с номером и пояснением (обязательно кодируем)
+            'announce' => $encodedAnnounce,
+
         ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     }
     public function getHappLink($token)
@@ -309,97 +336,168 @@ class SubscriptionController extends Controller
     private function parseOutbound($link, $tag)
     {
         $u = parse_url($link);
-        if (!$u || (!isset($u['scheme']) || $u['scheme'] !== 'vless')) return null;
+        // Проверяем, удалось ли распарсить ссылку и есть ли вообще протокол (scheme)
+        if (!$u || !isset($u['scheme'])) {
+            return null;
+        }
 
         parse_str($u['query'] ?? '', $query);
 
-        $userData = [
-            "encryption" => "none",
-            "id" => $u['user'],
-            "level" => 8,
-            "security" => "auto",
-        ];
-
-        if (!empty($query['flow'])) {
-            $userData["flow"] = $query['flow'];
-        }
-
-        // Определяем тип транспорта (tcp, grpc или ws)
-        $networkType = $query['type'] ?? 'tcp';
-        if (!in_array($networkType, ['tcp', 'grpc', 'ws'])) {
-            $networkType = 'tcp'; // фолбек на дефолт
-        }
-
-        // Определяем безопасность (reality, tls или none)
-        $security = $query['security'] ?? 'none';
-        if ($security === 'none' || empty($security)) {
-            $security = 'none';
-        }
-
-        $streamSettings = [
-            "network" => $networkType,
-            "security" => $security,
-        ];
-
-        // Собираем настройки безопасности, если это Reality
-        if ($security === 'reality') {
-            $streamSettings["realitySettings"] = [
-                "allowInsecure" => false,
-                "fingerprint" => "chrome",
-                "publicKey" => $query['pbk'] ?? "",
-                "serverName" => $query['sni'] ?? "",
-                "shortId" => $query['sid'] ?? "",
-                "show" => false,
-                "spiderX" => "/"
-            ];
-        }
-        // Собираем настройки безопасности, если это обычный TLS (для WS за CDN)
-        elseif ($security === 'tls') {
-            $streamSettings["tlssettings"] = [
-                "allowInsecure" => false,
-                "serverName" => $query['sni'] ?? $query['host'] ?? ""
-            ];
-        }
-
-        // Добавляем специфичные настройки в зависимости от транспорта
-        if ($networkType === 'grpc') {
-            $streamSettings["grpcSettings"] = [
-                "authority" => $query['sni'] ?? "",
-                "multiMode" => true,
-                "serviceName" => $query['serviceName'] ?? ""
-            ];
-        }
-        // --- ДОБАВЛЯЕМ ПОДДЕРЖКУ WEBSOCKET ---
-        elseif ($networkType === 'ws') {
-            $streamSettings["wsSettings"] = [
-                "headers" => [
-                    "Host" => !empty($query['host']) ? $query['host'] : ($query['sni'] ?? "")
-                ],
-                "path" => !empty($query['path']) ? rawurldecode($query['path']) : "/"
+        // ==========================================
+        // Логика VLESS
+        // ==========================================
+        if ($u['scheme'] === 'vless') {
+            $userData = [
+                "encryption" => "none",
+                "id" => $u['user'] ?? "",
+                "level" => 8,
+                "security" => "auto",
             ];
 
-            // Если заголовки пустые, можно вырезать блок headers, чтобы не слать пустой массив
-            if (empty($streamSettings["wsSettings"]["headers"]["Host"])) {
-                unset($streamSettings["wsSettings"]["headers"]);
+            if (!empty($query['flow'])) {
+                $userData["flow"] = $query['flow'];
             }
-        }
-        else {
-            $streamSettings["tcpSettings"] = ["header" => ["type" => "none"]];
+
+            // Определяем тип транспорта (tcp, grpc или ws)
+            $networkType = $query['type'] ?? 'tcp';
+            if (!in_array($networkType, ['tcp', 'grpc', 'ws'])) {
+                $networkType = 'tcp'; // фолбек на дефолт
+            }
+
+            // Определяем безопасность (reality, tls или none)
+            $security = $query['security'] ?? 'none';
+            if ($security === 'none' || empty($security)) {
+                $security = 'none';
+            }
+
+            $streamSettings = [
+                "network" => $networkType,
+                "security" => $security,
+            ];
+
+            // Настройки Reality
+            if ($security === 'reality') {
+                $streamSettings["realitySettings"] = [
+                    "allowInsecure" => false,
+                    "fingerprint" => "chrome",
+                    "publicKey" => $query['pbk'] ?? "",
+                    "serverName" => $query['sni'] ?? "",
+                    "shortId" => $query['sid'] ?? "",
+                    "show" => false,
+                    "spiderX" => "/"
+                ];
+            }
+            // Настройки TLS
+            elseif ($security === 'tls') {
+                $streamSettings["tlssettings"] = [
+                    "allowInsecure" => false,
+                    "serverName" => $query['sni'] ?? $query['host'] ?? ""
+                ];
+            }
+
+            // Транспортные настройки
+            if ($networkType === 'grpc') {
+                $streamSettings["grpcSettings"] = [
+                    "authority" => $query['sni'] ?? "",
+                    "multiMode" => true,
+                    "serviceName" => $query['serviceName'] ?? ""
+                ];
+            } elseif ($networkType === 'ws') {
+                $streamSettings["wsSettings"] = [
+                    "headers" => [
+                        "Host" => !empty($query['host']) ? $query['host'] : ($query['sni'] ?? "")
+                    ],
+                    "path" => !empty($query['path']) ? rawurldecode($query['path']) : "/"
+                ];
+
+                if (empty($streamSettings["wsSettings"]["headers"]["Host"])) {
+                    unset($streamSettings["wsSettings"]["headers"]);
+                }
+            } else {
+                $streamSettings["tcpSettings"] = ["header" => ["type" => "none"]];
+            }
+
+            return [
+                "mux" => ["concurrency" => -1, "enabled" => false, "xudpConcurrency" => 8, "xudpProxyUDP443" => ""],
+                "protocol" => "vless",
+                "settings" => [
+                    "vnext" => [[
+                        "address" => $u['host'],
+                        "port" => (int)($u['port'] ?? 443),
+                        "users" => [$userData]
+                    ]]
+                ],
+                "streamSettings" => $streamSettings,
+                "tag" => $tag
+            ];
         }
 
-        return [
-            "mux" => ["concurrency" => -1, "enabled" => false, "xudpConcurrency" => 8, "xudpProxyUDP443" => ""],
-            "protocol" => "vless",
-            "settings" => [
-                "vnext" => [[
-                    "address" => $u['host'],
-                    "port" => (int)($u['port'] ?? 443),
-                    "users" => [$userData]
-                ]]
-            ],
-            "streamSettings" => $streamSettings,
-            "tag" => $tag
-        ];
+        // ==========================================
+        // Логика HYSTERIA 2
+        // ==========================================
+        if ($u['scheme'] === 'hysteria2' || $u['scheme'] === 'hy2') {
+            $settings = [
+                "address" => $u['host'],
+                "port" => (int)($u['port'] ?? 443),
+                "version" => 2
+            ];
+
+            // Разбираем обфускацию (finalmask).
+            $finalmask = [];
+            // Если передан готовый JSON в параметре fm (как в твоей ссылке)
+            if (!empty($query['fm'])) {
+                $fmDecoded = json_decode($query['fm'], true);
+                if (is_array($fmDecoded)) {
+                    $finalmask = $fmDecoded;
+                }
+            }
+            // Фолбек: если fm нет, но есть стандартные obfs параметры
+            elseif (!empty($query['obfs'])) {
+                $finalmask['udp'] = [
+                    [
+                        "type" => $query['obfs'],
+                        "settings" => [
+                            "password" => $query['obfs-password'] ?? ""
+                        ]
+                    ]
+                ];
+            }
+
+            // Добавляем quicParams (congestion: brutal), как требует рабочий конфиг
+            if (!isset($finalmask['quicParams'])) {
+                $finalmask['quicParams'] = ["congestion" => "brutal"];
+            }
+
+            return [
+                "mux" => [
+                    "concurrency" => -1,
+                    "enabled" => false,
+                    "xudpConcurrency" => 8,
+                    "xudpProxyUDP443" => ""
+                ],
+                "protocol" => "hysteria", // Обрати внимание: hysteria, а не hysteria2
+                "settings" => $settings,
+                "streamSettings" => [
+                    "finalmask" => $finalmask,
+                    "hysteriaSettings" => [
+                        "auth" => $u['user'] ?? "",
+                        "version" => 2
+                    ],
+                    "network" => "hysteria",
+                    "security" => "tls",
+                    "tlsSettings" => [
+                        "allowInsecure" => false,
+                        "alpn" => !empty($query['alpn']) ? explode(',', $query['alpn']) : ["h3"],
+                        "serverName" => $query['sni'] ?? $u['host'],
+                        "show" => false
+                    ]
+                ],
+                "tag" => $tag
+            ];
+        }
+
+        // Если протокол не поддерживается
+        return null;
     }
 
     private function generateFullConfig($remarks, $proxyOutbounds, $subName, $balancerTags = null, $fallbackTag = null)
