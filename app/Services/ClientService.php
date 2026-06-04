@@ -91,4 +91,20 @@ class ClientService
             ->with('subscriptions')
             ->findOrFail($id);
     }
+    /**
+     * Найти клиента по ID конкретной подписки
+     * * @param int $subscriptionId
+     * @return Client
+     */
+    public function findBySubscriptionId(int $subscriptionId): Client
+    {
+        return Client::whereHas('subscriptions', function ($query) use ($subscriptionId) {
+            $query->where('subscriptions.id', $subscriptionId);
+        })
+            ->with(['subscriptions' => function ($query) use ($subscriptionId) {
+                // Подгружаем ТОЛЬКО ту подписку, которую искали, вместе с её конфигами
+                $query->where('id', $subscriptionId)->with('configs');
+            }])
+            ->firstOrFail();
+    }
 }

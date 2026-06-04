@@ -71,7 +71,7 @@ new class extends Component {
             <i class="bi bi-search m-2 text-muted"></i>
             <input type="text" wire:model.live="search"
                    class="form-control border-0 shadow-none ps-2"
-                   placeholder="Поиск по имени или телефону...">
+                   placeholder="Поиск по имени, телефону или № подписки (например: #15)...">
         </div>
     </div>
 

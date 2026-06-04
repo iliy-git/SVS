@@ -112,7 +112,12 @@ new class extends Component {
                             </div>
                         </div>
 
-                        <h5 class="fw-bold text-dark mb-1">{{ $subscription->name }}</h5>
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <h5 class="fw-bold text-dark m-0">{{ $subscription->name }}</h5>
+                            <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle rounded-pill text-info" title="ID подписки">
+                                #{{ $subscription->id }}
+                            </span>
+                        </div>
                         <p class="text-muted small mt-3 mb-1">Личный токен доступа</p>
 
                         <div class="input-group input-group-sm">
