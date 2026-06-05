@@ -55,7 +55,7 @@ class SubscriptionController extends Controller
                 ]);
             }
         } else {
-            // Если у всех конфигов expiry_time = 0 (полный безлимит по времени),
+            // Если у всех конфигов expiry_time = 0 (полный безлимит по времени)
             // сбрасываем дату окончания подписки, если она была установлена
             if ($sub->expires_at !== null) {
                 $sub->update(['expires_at' => null]);
