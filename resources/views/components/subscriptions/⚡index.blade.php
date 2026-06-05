@@ -52,6 +52,24 @@ new class extends Component {
             'type' => 'success'
         ]);
     }
+
+    public function extendSubscription($id, $days = 30) {
+        $success = app(SubscriptionService::class)->extendSubscription($id, $days);
+
+        unset($this->client);
+
+        if ($success) {
+            $this->dispatch('notify', [
+                'message' => "Подписка продлена на {$days} дн.",
+                'type' => 'success'
+            ]);
+        } else {
+            $this->dispatch('notify', [
+                'message' => 'Ошибка при продлении',
+                'type' => 'danger'
+            ]);
+        }
+    }
 }; ?>
 
 <div class="animate__animated animate__fadeIn">
@@ -95,6 +113,26 @@ new class extends Component {
                                        wire:navigate>
                                         <i class="bi bi-pencil me-2 text-primary"></i> Изменить
                                     </a>
+
+                                    <button class="lw-dropdown-item text-success"
+                                            wire:click="extendSubscription({{ $subscription->id }}, 30)">
+                                        <i class="bi bi-calendar-check me-2"></i> Продлить на 30 дней
+                                    </button>
+
+                                    <button class="lw-dropdown-item text-info"
+                                            onclick="extendCustom({{ $subscription->id }})">
+                                        <i class="bi bi-calendar-event me-2"></i> Свой срок...
+                                    </button>
+
+                                    <script>
+                                        function extendCustom(subId) {
+                                            let days = prompt("Введите количество дней для продления:", "1");
+                                            if (days !== null && days !== "" && !isNaN(days)) {
+                                                // Вызываем метод Livewire через специальный синтаксис
+                                            @this.call('extendSubscription', subId, parseInt(days));
+                                            }
+                                        }
+                                    </script>
 
                                     <div class="lw-dropdown-divider"></div>
 

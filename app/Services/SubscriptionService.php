@@ -179,4 +179,58 @@ class SubscriptionService
             'device_id' => null
         ]);
     }
+
+    /**
+     * Продление всех активных конфигов подписки
+     *
+     * @param int $id
+     * @param int $days Количество дней для продления
+     * @return bool
+     */
+    public function extendSubscription(int $id, int $days = 30): bool
+    {
+        $subscription = Subscription::with(['configs.node'])->findOrFail($id);
+
+        if ($subscription->configs->isEmpty()) {
+            return false;
+        }
+
+        $nowMs = now()->timestamp * 1000;
+        $updatedConfigs = 0;
+
+        foreach ($subscription->configs as $config) {
+            if (!$config->node || empty($config->email)) continue;
+
+            $currentExpiry = (int)$config->expiry_time;
+            $baseTime = ($currentExpiry > $nowMs) ? $currentExpiry : $nowMs;
+
+            // Динамический расчет времени: $days * 24 часа * 60 мин * 60 сек * 1000 мс
+            $newExpiryMs = $baseTime + ($days * 24 * 60 * 60 * 1000);
+
+            try {
+                $response = \Illuminate\Support\Facades\Http::withHeaders([
+                    'X-API-KEY' => $config->node->api_key
+                ])
+                    ->withoutVerifying()
+                    ->timeout(5)
+                    ->post("https://{$config->node->ip}:11223/email/extend", [
+                        'email' => $config->email,
+                        'days'  => $days // Передаем количество дней в наш API
+                    ]);
+
+                if ($response->successful()) {
+                    $config->update(['expiry_time' => $newExpiryMs, 'is_active' => true]);
+                    $updatedConfigs++;
+                }
+            } catch (\Exception $e) {
+                \Log::error("Сбой ноды {$config->node->ip}: " . $e->getMessage());
+            }
+        }
+
+        if ($updatedConfigs > 0) {
+            $subscription->update(['expires_at' => \Carbon\Carbon::now()->addDays($days)]);
+            return true;
+        }
+        return false;
+    }
 }

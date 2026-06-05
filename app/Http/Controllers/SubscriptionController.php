@@ -33,6 +33,36 @@ class SubscriptionController extends Controller
             $query->where('is_active', true);
         }, 'configs.flag', 'configs.node']);
 
+        // === НОВАЯ ЛОГИКА: СИНХРОНИЗАЦИЯ ДАТЫ ОКОНЧАНИЯ ===
+
+        // 1. Собираем все даты окончания больше 0 (исключаем безлимитные)
+        $validExpiries = $sub->configs
+            ->pluck('expiry_time')
+            ->filter(fn($time) => (int)$time > 0);
+
+        if ($validExpiries->isNotEmpty()) {
+            // 2. Берем минимальное значение (ближайшую дату)
+            $minExpiryMs = $validExpiries->min();
+
+            // 3. Конвертируем миллисекунды X-UI в секунды для Carbon
+            $minExpirySeconds = (int)($minExpiryMs / 1000);
+
+            // 4. Обновляем подписку только если дата реально изменилась
+            // (чтобы не дергать UPDATE при каждом запросе)
+            if (!$sub->expires_at || $sub->expires_at->timestamp !== $minExpirySeconds) {
+                $sub->update([
+                    'expires_at' => \Carbon\Carbon::createFromTimestamp($minExpirySeconds)
+                ]);
+            }
+        } else {
+            // Если у всех конфигов expiry_time = 0 (полный безлимит по времени),
+            // сбрасываем дату окончания подписки, если она была установлена
+            if ($sub->expires_at !== null) {
+                $sub->update(['expires_at' => null]);
+            }
+        }
+        $sub->refresh();
+
         $nodes = [];
         $allOutbounds = [];
         $mainTag = null;
@@ -117,7 +147,7 @@ class SubscriptionController extends Controller
 
         $safeSubName = str_replace(['"', "'", "\n", "\r"], '', $sub->name);
         $expireTimestamp = $sub->expires_at ? $sub->expires_at->timestamp : 0;
-
+        Log::info( $expireTimestamp);
         $userInfo = "upload={$totalUpBytes}; download={$totalDownBytes}; total={$totalLimitBytes}; expire={$expireTimestamp}";
 
         // 1. Номер подписки прямо в главном названии, чтобы он всегда был перед глазами
