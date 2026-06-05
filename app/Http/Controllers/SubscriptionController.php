@@ -61,7 +61,7 @@ class SubscriptionController extends Controller
                 $sub->update(['expires_at' => null]);
             }
         }
-        $sub->refresh();
+//        $sub->refresh();
 
         $nodes = [];
         $allOutbounds = [];

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Setting;
 use App\Models\TelegramUser;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\File;
@@ -14,24 +15,28 @@ class TelegramService
     /**
      * Сохранение настроек и обновление Webhook
      */
-    public function updateSettings(string $token, string $chatId, bool $isPolling = false): void
+    public function updateSettings(string $token, string $chatId, bool $isPolling = false, bool $notifyNodes = false): void
     {
+        // 1. Сначала обновляем файл .env на диске
         $this->updateEnv([
             'TELEGRAM_BOT_TOKEN' => $token,
             'TELEGRAM_CHAT_ID'   => $chatId,
         ]);
 
-        // Работаем с таблицей settings через модель Setting
-        \App\Models\Setting::updateOrCreate(
-            ['key' => 'tg_poll_enabled'],
-            ['value' => $isPolling ? '1' : '0']
-        );
+        Setting::updateOrCreate(['key' => 'tg_poll_enabled'], ['value' => $isPolling ? '1' : '0']);
+        Setting::updateOrCreate(['key' => 'notify_nodes_status'], ['value' => $notifyNodes ? '1' : '0']);
 
+        // --- Управление Polling ---
+        $this->stopPolling(); // ВСЕГДА сначала тушим старый процесс!
         if ($isPolling) {
             Http::get("https://api.telegram.org/bot{$token}/deleteWebhook");
-            $this->startPolling();
-        } else {
-            $this->stopPolling();
+            $this->startPolling(); // Запустится уже с новым .env
+        }
+
+        // --- Управление Мониторингом нод ---
+        $this->stopNodesMonitoring(); // ВСЕГДА сначала тушим старый процесс!
+        if ($notifyNodes) {
+            $this->startNodesMonitoring(); // Запустится уже с новым .env
         }
     }
 
@@ -123,5 +128,59 @@ class TelegramService
 
         \Illuminate\Support\Facades\Cache::forget('tg_poll_lock');
     }
+    /**
+     * Запуск демона мониторинга нод
+     */
+    public function startNodesMonitoring(): void
+    {
+        $basePath = base_path();
+        $command = "cd $basePath && nohup php artisan nodes:check > /dev/null 2>&1 &";
 
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            pclose(popen("start /B php artisan nodes:check", "r"));
+        } else {
+            exec($command);
+        }
+    }
+
+    /**
+     * Остановка демона мониторинга нод
+     */
+    public function stopNodesMonitoring(): void
+    {
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            // На винде мягко убить отдельный php-скрипт сложно, тушится всё
+            exec('taskkill /F /IM php.exe /T');
+        } else {
+            // На Linux точечно убиваем процесс демона нод
+            exec('pkill -f "nodes:check"');
+        }
+    }
+    /**
+     * Отправка уведомлений если нода не отвечает
+     */
+    public function sendSystemAlert(string $message): bool
+    {
+        // Проверяем, включен ли ползунок в настройках
+        $isEnabled = \App\Models\Setting::where('key', 'notify_nodes_status')->value('value');
+        if ($isEnabled !== '1') {
+            return false;
+        }
+
+        $token = env('TELEGRAM_BOT_TOKEN');
+        $adminChatId = env('TELEGRAM_CHAT_ID');
+
+        if (!$token || !$adminChatId) {
+            return false;
+        }
+
+        // Отправляем запрос в Telegram
+        $response = \Illuminate\Support\Facades\Http::post("{$this->baseUrl}{$token}/sendMessage", [
+            'chat_id' => $adminChatId,
+            'text' => "🖥 <b>МОНИТОРИНГ СЕРВЕРОВ</b>\n\n" . $message,
+            'parse_mode' => 'HTML'
+        ]);
+
+        return $response->ok();
+    }
 }

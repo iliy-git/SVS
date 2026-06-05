@@ -10,7 +10,9 @@ new class extends Component {
     public $chatId = '';
     public $testStatus = '';
     public $search = '';
+
     public $isPolling = false;
+    public $notifyNodes = false;
 
     public function mount()
     {
@@ -18,6 +20,7 @@ new class extends Component {
         $this->chatId = env('TELEGRAM_CHAT_ID', '');
 
         $this->isPolling = \App\Models\Setting::where('key', 'tg_poll_enabled')->value('value') === '1';
+        $this->notifyNodes = \App\Models\Setting::where('key', 'notify_nodes_status')->value('value') === '1';
     }
 
     public function save(TelegramService $service)
@@ -25,12 +28,17 @@ new class extends Component {
         $service->updateSettings(
             $this->botToken,
             $this->chatId,
-            $this->isPolling
+            $this->isPolling,
+            $this->notifyNodes
         );
 
-        $message = $this->isPolling
-            ? 'Настройки сохранены, бот запущен (Polling)!'
-            : 'Настройки сохранены!';
+        $statuses = [];
+        if ($this->isPolling) $statuses[] = 'Polling запущен';
+        if ($this->notifyNodes) $statuses[] = 'Мониторинг нод активирован';
+
+        $message = count($statuses) > 0
+            ? 'Настройки сохранены! Запущенные процессы: ' . implode(', ', $statuses) . '.'
+            : 'Настройки сохранены, фоновые процессы отключены.';
 
         session()->flash('message', $message);
     }
@@ -117,6 +125,28 @@ new class extends Component {
                                     <div class="tg-switch">
                                         <input type="checkbox" wire:model.live="isPolling" id="pollingCheck" class="tg-switch-input">
                                         <label for="pollingCheck" class="tg-switch-label"></label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12 mb-3">
+                                <div class="p-3 rounded-4 border border-secondary-subtle bg-dark shadow-sm d-flex align-items-center justify-content-between transition-all hover-shadow">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="icon-shape {{ $notifyNodes ? 'bg-success text-white' : 'bg-secondary bg-opacity-10 text-muted' }} rounded-3 p-2 transition-all">
+                                            <i class="bi bi-activity fs-5"></i>
+                                        </div>
+                                        <div>
+                                            <label class="form-check-label d-block fw-bold text-light mb-0" for="notifyNodesCheck" style="cursor: pointer;">
+                                                Мониторинг состояния нод
+                                            </label>
+                                            <div class="text-muted small" style="font-size: 0.75rem;">
+                                                {{ $notifyNodes ? 'Система отправит алерт при изменении статуса сервера' : 'Фоновые уведомления отключены' }}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="tg-switch">
+                                        <input type="checkbox" wire:model.live="notifyNodes" id="notifyNodesCheck" class="tg-switch-input">
+                                        <label for="notifyNodesCheck" class="tg-switch-label"></label>
                                     </div>
                                 </div>
                             </div>
