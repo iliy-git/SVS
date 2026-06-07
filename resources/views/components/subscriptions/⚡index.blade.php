@@ -73,6 +73,93 @@ new class extends Component {
 }; ?>
 
 <div class="animate__animated animate__fadeIn">
+    <div x-data="{
+            notifications: [],
+            addNotification(detail) {
+                // Корректно извлекаем данные для любой версии Livewire (v2/v3)
+                let data = detail.message ? detail : (detail[0] ? detail[0] : detail);
+                let id = Date.now();
+
+                this.notifications.push({
+                    id: id,
+                    message: data.message || 'Операция выполнена',
+                    type: data.type || 'success'
+                });
+
+                // Автоудаление через 3.5 секунды
+                setTimeout(() => {
+                    this.notifications = this.notifications.filter(n => n.id !== id);
+                }, 3500);
+            }
+         }"
+         @notify.window="addNotification($event.detail)"
+         class="position-fixed bottom-0 end-0 p-3"
+         style="z-index: 9999; max-width: 350px;">
+
+        <template x-for="note in notifications" :key="note.id">
+            <div x-transition:enter="transition ease-out duration-300 transform"
+                 x-transition:enter-start="translate-y-3 opacity-0 scale-95"
+                 x-transition:enter-end="translate-y-0 opacity-100 scale-100"
+                 x-transition:leave="transition ease-in duration-200 transform opacity-0 scale-95"
+                 class="card border-0 shadow-lg mb-2 overflow-hidden"
+                 style="background: rgba(33, 37, 41, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.15) !important; border-radius: 12px;">
+                <div class="card-body p-3 d-flex align-items-center gap-3">
+                    <div class="rounded-circle p-2 d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;"
+                         :class="note.type === 'success' ? 'bg-success bg-opacity-10 text-success' : 'bg-danger bg-opacity-10 text-danger'">
+                        <i class="bi" :class="note.type === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-circle-fill'"></i>
+                    </div>
+                    <div class="flex-grow-1 text-white small fw-medium" x-text="note.message"></div>
+                    <button type="button" class="btn p-0 text-muted shadow-none border-0 original-scale" @click="notifications = notifications.filter(n => n.id !== note.id)">
+                        <i class="bi bi-x fs-5"></i>
+                    </button>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <style>
+        .btn-press-animation {
+            transition: transform 0.1s ease, background-color 0.2s ease;
+        }
+        .btn-press-animation:active {
+            transform: scale(0.95) !important;
+        }
+        .custom-dark-dropdown {
+            background: rgba(33, 37, 41, 0.95) !important;
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+            border-radius: 12px !important;
+            min-width: 210px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+        }
+        .custom-dark-dropdown .dropdown-item {
+            color: #dee2e6 !important;
+            padding: 8px 14px;
+            font-size: 0.9rem;
+            transition: background 0.15s ease, color 0.15s ease;
+            border-radius: 6px;
+            margin: 2px 4px;
+            width: auto;
+            display: flex;
+            align-items: center;
+        }
+        .custom-dark-dropdown .dropdown-item:hover {
+            background: rgba(255, 255, 255, 0.1) !important;
+            color: #fff !important;
+        }
+        .custom-dark-divider {
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            margin: 6px 0;
+        }
+        .custom-url-copy input {
+            border-top-left-radius: 8px !important;
+            border-bottom-left-radius: 8px !important;
+        }
+        .custom-url-copy button, .custom-url-copy span {
+            border-top-right-radius: 8px !important;
+            border-bottom-right-radius: 8px !important;
+        }
+    </style>
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <nav aria-label="breadcrumb">
@@ -104,47 +191,43 @@ new class extends Component {
 
                                 <div x-show="open"
                                      @click.away="open = false"
-                                     x-transition:enter="animate__animated animate__fadeIn animate__faster"
-                                     class="lw-dropdown-menu"
-                                     style="display: none;">
+                                     x-transition:enter="transition ease-out duration-150"
+                                     x-transition:enter-start="opacity-0 transform scale-95 translate-y-[-10px]"
+                                     x-transition:enter-end="opacity-100 transform scale-100 translate-y-0"
+                                     x-transition:leave="transition ease-in duration-100"
+                                     x-transition:leave-start="opacity-100 transform scale-100 translate-y-0"
+                                     x-transition:leave-end="opacity-0 transform scale-95 translate-y-[-10px]"
+                                     class="dropdown-menu dropdown-menu-end show custom-dark-dropdown position-absolute"
+                                     style="display: none; right: 0; top: 100%; z-index: 1050;">
 
-                                    <a class="lw-dropdown-item"
+                                    <a class="dropdown-item"
                                        href="{{ route('subscriptions.edit', [$clientId, $subscription->id]) }}"
                                        wire:navigate>
                                         <i class="bi bi-pencil me-2 text-primary"></i> Изменить
                                     </a>
 
-                                    <button class="lw-dropdown-item text-success"
-                                            wire:click="extendSubscription({{ $subscription->id }}, 30)">
-                                        <i class="bi bi-calendar-check me-2"></i> Продлить на 30 дней
+                                    <button class="dropdown-item text-success"
+                                            wire:click="extendSubscription({{ $subscription->id }}, 30); open = false">
+                                        <i class="bi bi-calendar-check me-2 text-success"></i> Продлить на 30 дней
                                     </button>
 
-                                    <button class="lw-dropdown-item text-info"
-                                            onclick="extendCustom({{ $subscription->id }})">
-                                        <i class="bi bi-calendar-event me-2"></i> Свой срок...
+                                    <button class="dropdown-item text-info"
+                                            @click="extendCustom({{ $subscription->id }}); open = false">
+                                        <i class="bi bi-calendar-event me-2 text-info"></i> Свой срок...
                                     </button>
 
-                                    <script>
-                                        function extendCustom(subId) {
-                                            let days = prompt("Введите количество дней для продления:", "1");
-                                            if (days !== null && days !== "" && !isNaN(days)) {
-                                                // Вызываем метод Livewire через специальный синтаксис
-                                            @this.call('extendSubscription', subId, parseInt(days));
-                                            }
-                                        }
-                                    </script>
+                                    <div class="custom-dark-divider"></div>
 
-                                    <div class="lw-dropdown-divider"></div>
-
-                                    <button class="lw-dropdown-item text-danger"
+                                    <button class="dropdown-item text-danger"
                                             wire:click="deleteSubscription({{ $subscription->id }})"
                                             wire:confirm="Удалить подписку навсегда?">
-                                        <i class="bi bi-trash me-2"></i> Удалить
+                                        <i class="bi bi-trash me-2 text-danger"></i> Удалить
                                     </button>
-                                    <button class="lw-dropdown-item text-warning"
+
+                                    <button class="dropdown-item text-warning"
                                             wire:click="resetDevices({{ $subscription->id }})"
                                             wire:confirm="Обнулить привязку устройства для этой подписки?">
-                                        <i class="bi bi-device-hdd-fill me-2"></i> Сбросить устройство
+                                        <i class="bi bi-device-hdd-fill me-2 text-warning"></i> Сбросить устройство
                                     </button>
                                 </div>
                             </div>
@@ -212,6 +295,12 @@ new class extends Component {
         @endforelse
     </div>
     <script>
+        function extendCustom(subId) {
+            let days = prompt("Введите количество дней для продления:", "1");
+            if (days !== null && days !== "" && !isNaN(days)) {
+            @this.call('extendSubscription', subId, parseInt(days));
+            }
+        }
         function copyToClipboard(text, btn) {
             navigator.clipboard.writeText(text).then(() => {
                 const icon = btn.querySelector('i');
