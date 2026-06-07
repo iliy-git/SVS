@@ -189,6 +189,7 @@ new class extends Component {
                                     <i class="bi bi-three-dots-vertical fs-5"></i>
                                 </button>
 
+
                                 <div x-show="open"
                                      @click.away="open = false"
                                      x-transition:enter="transition ease-out duration-150"
