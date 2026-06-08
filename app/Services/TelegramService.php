@@ -15,7 +15,7 @@ class TelegramService
     /**
      * Сохранение настроек и обновление Webhook
      */
-    public function updateSettings(string $token, string $chatId, bool $isPolling = false, bool $notifyNodes = false): void
+    public function updateSettings(string $token, string $chatId, bool $isPolling = false, bool $notifyNodes = false, bool $notifySubs = false): void
     {
         // 1. Сначала обновляем файл .env на диске
         $this->updateEnv([
@@ -25,6 +25,7 @@ class TelegramService
 
         Setting::updateOrCreate(['key' => 'tg_poll_enabled'], ['value' => $isPolling ? '1' : '0']);
         Setting::updateOrCreate(['key' => 'notify_nodes_status'], ['value' => $notifyNodes ? '1' : '0']);
+        Setting::updateOrCreate(['key' => 'notify_subs_status'], ['value' => $notifySubs ? '1' : '0']);
 
         // --- Управление Polling ---
         $this->stopPolling(); // ВСЕГДА сначала тушим старый процесс!
@@ -37,6 +38,12 @@ class TelegramService
         $this->stopNodesMonitoring(); // ВСЕГДА сначала тушим старый процесс!
         if ($notifyNodes) {
             $this->startNodesMonitoring(); // Запустится уже с новым .env
+        }
+
+        // --- Управление окончанием подписок
+        $this->stopSubscriptionsMonitoring(); // ВСЕГДА сначала тушим старый процесс!
+        if ($notifySubs) {
+            $this->startSubscriptionsMonitoring(); // Запустится уже с новым .env
         }
     }
 
@@ -182,5 +189,31 @@ class TelegramService
         ]);
 
         return $response->ok();
+    }
+    /**
+     * Запуск демона мониторинга подписок
+     */
+    public function startSubscriptionsMonitoring(): void
+    {
+        $basePath = base_path();
+        $command = "cd $basePath && nohup php artisan subscriptions:check-expiry > /dev/null 2>&1 &";
+
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            pclose(popen("start /B php artisan subscriptions:check-expiry", "r"));
+        } else {
+            exec($command);
+        }
+    }
+
+    /**
+     * Остановка демона
+     */
+    public function stopSubscriptionsMonitoring(): void
+    {
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            exec('taskkill /F /IM php.exe /T');
+        } else {
+            exec('pkill -f "subscriptions:check-expiry"');
+        }
     }
 }
