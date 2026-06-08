@@ -16,6 +16,7 @@ class CheckSubscriptionsExpiry extends Command
 
     public function handle(TelegramService $tgService)
     {
+
         $this->info("🚀 Демон проверки подписок запущен...");
 
         while (true) {
