@@ -55,7 +55,7 @@ class NodeService
         try {
             $response = Http::withHeaders(['X-API-KEY' => $node->api_key])
                 ->withoutVerifying()
-                ->timeout(3)
+                ->timeout(5)
                 ->get("https://{$node->ip}:{$node->port}/ping");
 
             $isActive = ($response->ok() && $response->json('status') === 'ok');
