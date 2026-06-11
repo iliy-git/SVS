@@ -42,6 +42,24 @@ class TelegramWebhookController extends Controller
         );
 
         $text = $message['text'] ?? $message['caption'] ?? '';
+
+        // -----------------------------------------------------
+        // 🚀 НОВОЕ: Обработка команды /start
+        // -----------------------------------------------------
+        if ($text === '/start') {
+            $welcomeText = "👋 <b>Привет!</b> <b>Комар</b> на связи.\nРасскажи, что стряслось? Опиши свою проблему и не забудь указать <b>номер подписки</b> — так мы сможем помочь гораздо быстрее!";
+
+            // Отправляем красивое приветствие пользователю
+            $this->sendTelegram($botToken, $tgId, ['text' => $welcomeText]);
+
+            // Записываем в базу, что юзер нажал start (для истории), но НЕ пересылаем админу
+            $user->messages()->create(['text' => '/start', 'is_from_bot' => false]);
+
+            return; // Прерываем скрипт, чтобы не спамить админу
+        }
+        // -----------------------------------------------------
+
+
         $user->messages()->create(['text' => $text ?: '[Файл]', 'is_from_bot' => false]);
 
         $userLink = isset($message['from']['username'])
