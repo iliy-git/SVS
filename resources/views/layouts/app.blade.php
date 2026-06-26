@@ -30,6 +30,7 @@
             background-color: var(--main-bg);
             color: var(--text-main);
             margin: 0;
+            overflow-x: hidden; /* Предотвращаем горизонтальный скролл на мобилках */
         }
 
         .sidebar {
@@ -42,6 +43,7 @@
             display: flex;
             flex-direction: column;
             z-index: 1050;
+            transition: transform 0.3s ease-in-out; /* Плавное открытие для мобилок */
         }
 
         .sidebar-brand {
@@ -84,6 +86,7 @@
             margin-left: var(--sidebar-width);
             padding: 2.5rem;
             background-color: var(--main-bg);
+            transition: margin-left 0.3s ease-in-out;
         }
 
         .card {
@@ -224,8 +227,6 @@
             transition: width 1s ease-in-out !important;
         }
 
-
-
         .cursor-pointer { cursor: pointer; }
 
         .flag-box {
@@ -297,14 +298,82 @@
             color: #22c55e !important;
             text-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
         }
+
+        /* --- НОВЫЕ СТИЛИ ДЛЯ АДАПТИВНОСТИ (ТЕЛЕФОНЫ) --- */
+
+        .mobile-header {
+            display: none;
+            background-color: var(--sidebar-bg);
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 1040;
+        }
+
+        .mobile-brand {
+            color: var(--accent);
+            font-weight: 700;
+            font-size: 1.1rem;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+        }
+
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1045;
+            backdrop-filter: blur(2px);
+        }
+
+        @media (max-width: 768px) {
+            .mobile-header {
+                display: flex; /* Показываем шапку на мобилках */
+            }
+
+            .sidebar {
+                transform: translateX(-100%); /* Прячем меню за левый край */
+                box-shadow: 5px 0 15px rgba(0,0,0,0.5);
+            }
+
+            .sidebar.show {
+                transform: translateX(0); /* Класс для открытия меню */
+            }
+
+            .sidebar-overlay.show {
+                display: block; /* Показываем затемнение */
+            }
+
+            .main-content {
+                margin-left: 0; /* Растягиваем контент на весь экран */
+                padding: 1.5rem 1rem; /* Уменьшаем отступы на мобилках */
+            }
+        }
     </style>
-
-
-
 </head>
 <body>
 
-<nav class="sidebar">
+<!-- Мобильная шапка (появляется только на экранах < 768px) -->
+<div class="mobile-header">
+    <a href="{{ route('dashboard') }}" class="mobile-brand" wire:navigate>
+        <i class="bi bi-shield-lock-fill"></i> SUB VPN
+    </a>
+    <button class="btn btn-link text-white p-0" id="mobileMenuToggle">
+        <i class="bi bi-list fs-1"></i>
+    </button>
+</div>
+
+<!-- Затемнение экрана при открытом меню -->
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+<nav class="sidebar" id="appSidebar">
     <a href="{{ route('dashboard') }}" class="sidebar-brand" wire:navigate>
         <i class="bi bi-shield-lock-fill"></i> SUB VPN SYSTEM
     </a>
@@ -367,5 +436,54 @@
 
 @livewireScripts
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Скрипт для работы мобильного меню с поддержкой Livewire Navigate -->
+<script>
+    document.addEventListener('livewire:navigated', initMobileMenu);
+    document.addEventListener('DOMContentLoaded', initMobileMenu);
+
+    function initMobileMenu() {
+        const toggleBtn = document.getElementById('mobileMenuToggle');
+        const sidebar = document.getElementById('appSidebar');
+        const overlay = document.getElementById('sidebarOverlay');
+
+        if (!toggleBtn || !sidebar || !overlay) return;
+
+        // Предотвращаем двойные срабатывания при SPA переходах Livewire
+        const newToggleBtn = toggleBtn.cloneNode(true);
+        toggleBtn.parentNode.replaceChild(newToggleBtn, toggleBtn);
+
+        const newOverlay = overlay.cloneNode(true);
+        overlay.parentNode.replaceChild(newOverlay, overlay);
+
+        function toggleMenu() {
+            document.getElementById('appSidebar').classList.toggle('show');
+            document.getElementById('sidebarOverlay').classList.toggle('show');
+
+            // Блокируем скролл страницы на фоне, когда меню открыто
+            if (document.getElementById('appSidebar').classList.contains('show')) {
+                document.body.style.overflow = 'hidden';
+            } else {
+                document.body.style.overflow = '';
+            }
+        }
+
+        // Открытие по кнопке бургер
+        document.getElementById('mobileMenuToggle').addEventListener('click', toggleMenu);
+
+        // Закрытие при клике на затемненную область
+        document.getElementById('sidebarOverlay').addEventListener('click', toggleMenu);
+
+        // Авто-закрытие меню при клике на любую ссылку в сайдбаре
+        const navLinks = document.querySelectorAll('.nav-item-link');
+        navLinks.forEach(link => {
+            link.addEventListener('click', () => {
+                if (window.innerWidth <= 768) {
+                    toggleMenu();
+                }
+            });
+        });
+    }
+</script>
 </body>
 </html>
