@@ -32,6 +32,8 @@ class ConfigService
             'clientId'      => 'nullable',
             'subId'         => 'nullable',
             'configId'      => 'nullable',
+            'is_modernized' => 'nullable|boolean',
+            'node_id'       => 'nullable',
         ];
     }
 
@@ -79,10 +81,12 @@ class ConfigService
 
         return [
             'configId'      => $config->id,
+            'node_id'       => $config->node_id,
             'name'          => $config->name,
             'link'          => $config->link,
             'flag_id'       => $config->flag_id,
             'traffic_limit' => $config->traffic_limit ?? 0,
+            'is_modernized' => (bool) $config->is_modernized,
         ];
     }
 
@@ -97,6 +101,7 @@ class ConfigService
             'flag_id'       => $data['flag_id'],
             'traffic_limit' => $data['traffic_limit'] ?? 0,
             'is_active'     => true,
+            'is_modernized' => $data['is_modernized'] ?? 0,
         ]);
 
         Subscription::findOrFail($subId)->configs()->attach($config->id);
@@ -116,6 +121,7 @@ class ConfigService
             'link'          => $data['link'],
             'flag_id'       => $data['flag_id'],
             'traffic_limit' => $data['traffic_limit'] ?? 0,
+            'is_modernized' => $data['is_modernized'] ?? 0,
         ]);
 
         return $config;
@@ -203,6 +209,7 @@ class ConfigService
                 'down'            => $remoteItem['stats']['down'] ?? 0,
                 'expiry_time'     => $remoteItem['stats']['expiry'] ?? null,
                 'flag_id'         => $node->flag_id,
+                'is_modernized' => false,
             ]);
 
             Subscription::findOrFail($subId)->configs()->attach($config->id);

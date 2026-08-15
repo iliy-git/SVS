@@ -7,7 +7,7 @@ use App\Models\Flag;
 
 new class extends Component {
     public $clientId, $subId, $configId;
-    public $name, $link, $flag_id, $traffic_limit;
+    public $name, $link, $flag_id, $node_id, $traffic_limit, $is_modernized;
 
     public $flags;
 
@@ -104,7 +104,29 @@ new class extends Component {
                         </div>
                         @error('traffic_limit') <span class="text-danger small">{{ $message }}</span> @enderror
                     </div>
-
+                    {{-- Блок тумблера с исправленной версткой --}}
+                    @if($node_id)
+                        <div class="balancer-card mb-4 p-3 d-flex align-items-center justify-content-between cursor-pointer {{ $is_modernized ? 'active' : '' }}"
+                             onclick="document.getElementById('is_modernized_check').click()">
+                            <div class="d-flex align-items-center me-3">
+                                <div class="icon-box me-3 d-flex align-items-center justify-content-center">
+                                    <i class="bi bi-lock-fill fs-4 {{ $is_modernized ? 'text-primary' : 'text-secondary' }}"></i>
+                                </div>
+                                <div>
+                                    <div class="fw-bold small text-uppercase mb-0">Заблокировать обновление ссылки</div>
+                                    <div class="text-secondary" style="font-size: 11px;">
+                                        Включите, если проводилась кастомизация. Поле <strong>link</strong> перестанет перезаписываться из панели X-UI при сборе статистики.
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-check m-0" onclick="event.stopPropagation()">
+                                <input class="form-check-input custom-checkbox cursor-pointer"
+                                       type="checkbox"
+                                       id="is_modernized_check"
+                                       wire:model.live="is_modernized">
+                            </div>
+                        </div>
+                    @endif
                     <div class="d-flex justify-content-between align-items-center mt-2">
                         <a href="{{ route('configs.index', [$clientId, $subId]) }}" wire:navigate
                            class="btn btn-link text-secondary text-decoration-none fw-bold p-0">

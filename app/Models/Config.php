@@ -21,6 +21,7 @@ class Config extends Model
         'flag_id',
         'is_main',
         'is_active',
+        'is_modernized'
         ];
 
     public function subscriptions(): BelongsToMany

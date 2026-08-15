@@ -321,7 +321,7 @@ class SubscriptionController extends Controller
                 ];
 
                 // Проверяем, пришел ли линк и не пустой ли он, чтобы не затереть БД ошибкой
-                if (!empty($data['link'])) {
+                if (!empty($data['link']) && !$config->is_modernized) {
                     $updateData['link'] = $data['link'];
                 }
                 \Log::info($updateData);
@@ -388,9 +388,9 @@ class SubscriptionController extends Controller
                 $userData["flow"] = $query['flow'];
             }
 
-            // Определяем тип транспорта (tcp, grpc или ws)
+            // Определяем тип транспорта (tcp, grpc, ws или xhttp)
             $networkType = $query['type'] ?? 'tcp';
-            if (!in_array($networkType, ['tcp', 'grpc', 'ws'])) {
+            if (!in_array($networkType, ['tcp', 'grpc', 'ws', 'xhttp'])) {
                 $networkType = 'tcp'; // фолбек на дефолт
             }
 
@@ -409,7 +409,7 @@ class SubscriptionController extends Controller
             if ($security === 'reality') {
                 $streamSettings["realitySettings"] = [
                     "allowInsecure" => false,
-                    "fingerprint" => "chrome",
+                    "fingerprint" => $query['fp'] ?? "chrome",
                     "publicKey" => $query['pbk'] ?? "",
                     "serverName" => $query['sni'] ?? "",
                     "shortId" => $query['sid'] ?? "",
@@ -419,10 +419,21 @@ class SubscriptionController extends Controller
             }
             // Настройки TLS
             elseif ($security === 'tls') {
-                $streamSettings["tlssettings"] = [
+                $tlsSettings = [
                     "allowInsecure" => false,
                     "serverName" => $query['sni'] ?? $query['host'] ?? ""
                 ];
+
+                if (!empty($query['alpn'])) {
+                    // Корректно разбиваем ALPN из строки (может быть через запятую или с пробелами)
+                    $tlsSettings["alpn"] = array_map('trim', explode(',', $query['alpn']));
+                }
+
+                if (!empty($query['fp'])) {
+                    $tlsSettings["fingerprint"] = $query['fp'];
+                }
+
+                $streamSettings["tlsSettings"] = $tlsSettings;
             }
 
             // Транспортные настройки
@@ -443,6 +454,23 @@ class SubscriptionController extends Controller
                 if (empty($streamSettings["wsSettings"]["headers"]["Host"])) {
                     unset($streamSettings["wsSettings"]["headers"]);
                 }
+            } elseif ($networkType === 'xhttp') {
+                $xhttpSettings = [
+                    "path" => !empty($query['path']) ? rawurldecode($query['path']) : "/",
+                    "host" => !empty($query['host']) ? $query['host'] : ($query['sni'] ?? ""),
+                    "mode" => $query['mode'] ?? "auto",
+                ];
+
+                // Разбор JSON-параметра extra (содержит packet-up, padding, методы и т.д.)
+                if (!empty($query['extra'])) {
+                    $extraDecoded = json_decode($query['extra'], true);
+                    if (is_array($extraDecoded)) {
+                        // Объединяем параметры из extra в xhttpSettings
+                        $xhttpSettings = array_merge($xhttpSettings, $extraDecoded);
+                    }
+                }
+
+                $streamSettings["xhttpSettings"] = $xhttpSettings;
             } else {
                 $streamSettings["tcpSettings"] = ["header" => ["type" => "none"]];
             }
@@ -458,70 +486,6 @@ class SubscriptionController extends Controller
                     ]]
                 ],
                 "streamSettings" => $streamSettings,
-                "tag" => $tag
-            ];
-        }
-
-        // ==========================================
-        // Логика HYSTERIA 2
-        // ==========================================
-        if ($u['scheme'] === 'hysteria2' || $u['scheme'] === 'hy2') {
-            $settings = [
-                "address" => $u['host'],
-                "port" => (int)($u['port'] ?? 443),
-                "version" => 2
-            ];
-
-            // Разбираем обфускацию (finalmask).
-            $finalmask = [];
-            // Если передан готовый JSON в параметре fm (как в твоей ссылке)
-            if (!empty($query['fm'])) {
-                $fmDecoded = json_decode($query['fm'], true);
-                if (is_array($fmDecoded)) {
-                    $finalmask = $fmDecoded;
-                }
-            }
-            // Фолбек: если fm нет, но есть стандартные obfs параметры
-            elseif (!empty($query['obfs'])) {
-                $finalmask['udp'] = [
-                    [
-                        "type" => $query['obfs'],
-                        "settings" => [
-                            "password" => $query['obfs-password'] ?? ""
-                        ]
-                    ]
-                ];
-            }
-
-            // Добавляем quicParams (congestion: brutal), как требует рабочий конфиг
-            if (!isset($finalmask['quicParams'])) {
-                $finalmask['quicParams'] = ["congestion" => "brutal"];
-            }
-
-            return [
-                "mux" => [
-                    "concurrency" => -1,
-                    "enabled" => false,
-                    "xudpConcurrency" => 8,
-                    "xudpProxyUDP443" => ""
-                ],
-                "protocol" => "hysteria", // Обрати внимание: hysteria, а не hysteria2
-                "settings" => $settings,
-                "streamSettings" => [
-                    "finalmask" => $finalmask,
-                    "hysteriaSettings" => [
-                        "auth" => $u['user'] ?? "",
-                        "version" => 2
-                    ],
-                    "network" => "hysteria",
-                    "security" => "tls",
-                    "tlsSettings" => [
-                        "allowInsecure" => false,
-                        "alpn" => !empty($query['alpn']) ? explode(',', $query['alpn']) : ["h3"],
-                        "serverName" => $query['sni'] ?? $u['host'],
-                        "show" => false
-                    ]
-                ],
                 "tag" => $tag
             ];
         }
