@@ -724,7 +724,7 @@ class SubscriptionController extends Controller
             "description" => $subName,
 
             "routing" => [
-                "domainStrategy" => "IPIfNonMatch",
+                "domainStrategy" => "AsIs",
                 "domainMatcher" => "hybrid",
                 "rules" => $rules,
                 "balancers" => $balancers
