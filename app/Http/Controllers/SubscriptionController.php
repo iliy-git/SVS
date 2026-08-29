@@ -616,27 +616,55 @@ class SubscriptionController extends Controller
             ]);
 
         } else {
-            // Динамически берем tag текущего обрабатываемого прокси
-            $currentProxyTag = $proxyOutbounds[0]['tag'] ?? 'proxy-1';
+            // 1. Ищем узел (xhttp + tls + extra)
+            $xhttpSpecialTags = [];
+            foreach ($proxyOutbounds as $outbound) {
+                if ($this->isXhttpTlsWithExtra($outbound)) {
+                    $xhttpSpecialTags[] = $outbound['tag'];
+                }
+            }
 
+            // 2. Целевой аутбаунд
+            $targetProxyTag = !empty($xhttpSpecialTags)
+                ? $xhttpSpecialTags[0]
+                : ($proxyOutbounds[0]['tag'] ?? 'proxy-1');
+
+            // 3. Правило для прямого назначения порта 10810 (socks-xhttp)
+            // Если клиент явно цепляется на порт 10810 — шлем строго в targetProxyTag
             $rules[] = [
                 "type" => "field",
-                "inboundTag" => ["socks"],
+                "inboundTag" => ["socks-xhttp"],
+                "outboundTag" => $targetProxyTag
+            ];
+
+            // 4. Заворачиваем DNS со ВСЕХ соксов (включая socks-xhttp)
+            $rules[] = [
+                "type" => "field",
+                "inboundTag" => ["socks", "http", "socks-xhttp"],
                 "port" => "53",
-                "outboundTag" => $currentProxyTag
+                "outboundTag" => $targetProxyTag
             ];
 
             $rules[] = [
                 "type" => "field",
                 "ip" => ["1.1.1.1"],
                 "port" => "53",
-                "outboundTag" => $currentProxyTag
+                "outboundTag" => $targetProxyTag
             ];
 
+            // 5. Общий фолбек для стандартных портов (10808, 10809)
+            $rules[] = [
+                "type" => "field",
+                "inboundTag" => ["socks", "http"],
+                "network" => "tcp,udp",
+                "outboundTag" => $targetProxyTag
+            ];
+
+            // 6. Запасной фолбек для всего остального
             $rules[] = [
                 "type" => "field",
                 "network" => "tcp,udp",
-                "outboundTag" => $currentProxyTag
+                "outboundTag" => $targetProxyTag
             ];
         }
 
@@ -679,6 +707,21 @@ class SubscriptionController extends Controller
                         "enabled" => true
                     ],
                     "tag" => "http"
+                ],
+                [
+                    "listen" => "127.0.0.1",
+                    "port" => 10810,
+                    "protocol" => "socks",
+                    "settings" => [
+                        "auth" => "noauth",
+                        "udp" => true,
+                        "userLevel" => 8
+                    ],
+                    "sniffing" => [
+                        "destOverride" => ["http", "tls", "quic"],
+                        "enabled" => true
+                    ],
+                    "tag" => "socks-xhttp" // <-- Отдельный tag для XHTTP
                 ],
                 [
                     "listen" => "127.0.0.1",
@@ -734,5 +777,21 @@ class SubscriptionController extends Controller
 
             "observatory" => $observatory
         ];
+    }
+    private function isXhttpTlsWithExtra(array $outbound): bool
+    {
+        if (($outbound['protocol'] ?? '') !== 'vless') {
+            return false;
+        }
+
+        $stream = $outbound['streamSettings'] ?? [];
+
+        $isXhttp = ($stream['network'] ?? '') === 'xhttp';
+        $isTls = ($stream['security'] ?? '') === 'tls';
+
+        $extra = $stream['xhttpSettings']['extra'] ?? null;
+        $hasExtra = !empty($extra); // Сработает и на непустой массив, и на непустую строку/json
+
+        return $isXhttp && $isTls && $hasExtra;
     }
 }
