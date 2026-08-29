@@ -455,22 +455,45 @@ class SubscriptionController extends Controller
                     unset($streamSettings["wsSettings"]["headers"]);
                 }
             } elseif ($networkType === 'xhttp') {
+                // Базовые параметры xhttp (в корне остаются только path, host и mode)
                 $xhttpSettings = [
                     "path" => !empty($query['path']) ? rawurldecode($query['path']) : "/",
                     "host" => !empty($query['host']) ? $query['host'] : ($query['sni'] ?? ""),
-                    "mode" => $query['mode'] ?? "auto",
+                    "mode" => $query['mode'] ?? "packet-up", // По умолчанию packet-up для обхода DPI
                 ];
 
-                // Разбор JSON-параметра extra (содержит packet-up, padding, методы и т.д.)
+                // Разбор extra (из ссылки vless://...&extra=...)
                 if (!empty($query['extra'])) {
-                    $extraDecoded = json_decode($query['extra'], true);
+                    $extraDecoded = is_string($query['extra']) ? json_decode(rawurldecode($query['extra']), true) : $query['extra'];
+
                     if (is_array($extraDecoded)) {
-                        // Объединяем параметры из extra в xhttpSettings
-                        $xhttpSettings = array_merge($xhttpSettings, $extraDecoded);
+                        // Если в extra передан mode, он переопределяет корневой mode
+                        if (isset($extraDecoded['mode'])) {
+                            $xhttpSettings['mode'] = $extraDecoded['mode'];
+                            unset($extraDecoded['mode']);
+                        }
+
+                        // Фикс опечаток регистра (sessionIDKey -> sessionIdKey) для совместимости с Xray
+                        $normalizedExtra = [];
+                        foreach ($extraDecoded as $key => $val) {
+                            if ($key === 'sessionIDKey') {
+                                $normalizedExtra['sessionIdKey'] = $val;
+                            } elseif ($key === 'sessionIDPlacement') {
+                                $normalizedExtra['sessionIdPlacement'] = $val;
+                            } else {
+                                $normalizedExtra[$key] = $val;
+                            }
+                        }
+
+                        // Упаковываем обфускацию обратно во вложенный объект extra
+                        if (!empty($normalizedExtra)) {
+                            $xhttpSettings['extra'] = $normalizedExtra;
+                        }
                     }
                 }
 
                 $streamSettings["xhttpSettings"] = $xhttpSettings;
+
             } else {
                 $streamSettings["tcpSettings"] = ["header" => ["type" => "none"]];
             }
