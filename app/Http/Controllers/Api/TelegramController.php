@@ -25,7 +25,7 @@ class TelegramController extends Controller
                 'message' => 'Клиент с таким Telegram ID не найден'
             ], 404);
         }
-        $client->subscriptions->makeHidden(['token']);
+//        $client->subscriptions->makeHidden(['token']);
         return response()->json([
             'success' => true,
             'data' => [
