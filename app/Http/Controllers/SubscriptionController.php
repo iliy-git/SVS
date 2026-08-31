@@ -455,45 +455,22 @@ class SubscriptionController extends Controller
                     unset($streamSettings["wsSettings"]["headers"]);
                 }
             } elseif ($networkType === 'xhttp') {
-                // Базовые параметры xhttp (в корне остаются только path, host и mode)
                 $xhttpSettings = [
                     "path" => !empty($query['path']) ? rawurldecode($query['path']) : "/",
                     "host" => !empty($query['host']) ? $query['host'] : ($query['sni'] ?? ""),
-                    "mode" => $query['mode'] ?? "packet-up", // По умолчанию packet-up для обхода DPI
+                    "mode" => $query['mode'] ?? "auto",
                 ];
 
-                // Разбор extra (из ссылки vless://...&extra=...)
+                // Разбор JSON-параметра extra (содержит packet-up, padding, методы и т.д.)
                 if (!empty($query['extra'])) {
-                    $extraDecoded = is_string($query['extra']) ? json_decode(rawurldecode($query['extra']), true) : $query['extra'];
-
+                    $extraDecoded = json_decode($query['extra'], true);
                     if (is_array($extraDecoded)) {
-                        // Если в extra передан mode, он переопределяет корневой mode
-                        if (isset($extraDecoded['mode'])) {
-                            $xhttpSettings['mode'] = $extraDecoded['mode'];
-                            unset($extraDecoded['mode']);
-                        }
-
-                        // Фикс опечаток регистра (sessionIDKey -> sessionIdKey) для совместимости с Xray
-                        $normalizedExtra = [];
-                        foreach ($extraDecoded as $key => $val) {
-                            if ($key === 'sessionIDKey') {
-                                $normalizedExtra['sessionIdKey'] = $val;
-                            } elseif ($key === 'sessionIDPlacement') {
-                                $normalizedExtra['sessionIdPlacement'] = $val;
-                            } else {
-                                $normalizedExtra[$key] = $val;
-                            }
-                        }
-
-                        // Упаковываем обфускацию обратно во вложенный объект extra
-                        if (!empty($normalizedExtra)) {
-                            $xhttpSettings['extra'] = $normalizedExtra;
-                        }
+                        // Объединяем параметры из extra в xhttpSettings
+                        $xhttpSettings = array_merge($xhttpSettings, $extraDecoded);
                     }
                 }
 
                 $streamSettings["xhttpSettings"] = $xhttpSettings;
-
             } else {
                 $streamSettings["tcpSettings"] = ["header" => ["type" => "none"]];
             }
@@ -616,55 +593,27 @@ class SubscriptionController extends Controller
             ]);
 
         } else {
-            // 1. Ищем узел (xhttp + tls + extra)
-            $xhttpSpecialTags = [];
-            foreach ($proxyOutbounds as $outbound) {
-                if ($this->isXhttpTlsWithExtra($outbound)) {
-                    $xhttpSpecialTags[] = $outbound['tag'];
-                }
-            }
+            // Динамически берем tag текущего обрабатываемого прокси
+            $currentProxyTag = $proxyOutbounds[0]['tag'] ?? 'proxy-1';
 
-            // 2. Целевой аутбаунд
-            $targetProxyTag = !empty($xhttpSpecialTags)
-                ? $xhttpSpecialTags[0]
-                : ($proxyOutbounds[0]['tag'] ?? 'proxy-1');
-
-            // 3. Правило для прямого назначения порта 10810 (socks-xhttp)
-            // Если клиент явно цепляется на порт 10810 — шлем строго в targetProxyTag
             $rules[] = [
                 "type" => "field",
-                "inboundTag" => ["socks-xhttp"],
-                "outboundTag" => $targetProxyTag
-            ];
-
-            // 4. Заворачиваем DNS со ВСЕХ соксов (включая socks-xhttp)
-            $rules[] = [
-                "type" => "field",
-                "inboundTag" => ["socks", "http", "socks-xhttp"],
+                "inboundTag" => ["socks"],
                 "port" => "53",
-                "outboundTag" => $targetProxyTag
+                "outboundTag" => $currentProxyTag
             ];
 
             $rules[] = [
                 "type" => "field",
                 "ip" => ["1.1.1.1"],
                 "port" => "53",
-                "outboundTag" => $targetProxyTag
+                "outboundTag" => $currentProxyTag
             ];
 
-            // 5. Общий фолбек для стандартных портов (10808, 10809)
-            $rules[] = [
-                "type" => "field",
-                "inboundTag" => ["socks", "http"],
-                "network" => "tcp,udp",
-                "outboundTag" => $targetProxyTag
-            ];
-
-            // 6. Запасной фолбек для всего остального
             $rules[] = [
                 "type" => "field",
                 "network" => "tcp,udp",
-                "outboundTag" => $targetProxyTag
+                "outboundTag" => $currentProxyTag
             ];
         }
 
@@ -710,21 +659,6 @@ class SubscriptionController extends Controller
                 ],
                 [
                     "listen" => "127.0.0.1",
-                    "port" => 10810,
-                    "protocol" => "socks",
-                    "settings" => [
-                        "auth" => "noauth",
-                        "udp" => true,
-                        "userLevel" => 8
-                    ],
-                    "sniffing" => [
-                        "destOverride" => ["http", "tls", "quic"],
-                        "enabled" => true
-                    ],
-                    "tag" => "socks-xhttp" // <-- Отдельный tag для XHTTP
-                ],
-                [
-                    "listen" => "127.0.0.1",
                     "port" => 11111,
                     "protocol" => "dokodemo-door",
                     "settings" => ["address" => "127.0.0.1"],
@@ -767,7 +701,7 @@ class SubscriptionController extends Controller
             "description" => $subName,
 
             "routing" => [
-                "domainStrategy" => "AsIs",
+                "domainStrategy" => "IPIfNonMatch",
                 "domainMatcher" => "hybrid",
                 "rules" => $rules,
                 "balancers" => $balancers
@@ -777,21 +711,5 @@ class SubscriptionController extends Controller
 
             "observatory" => $observatory
         ];
-    }
-    private function isXhttpTlsWithExtra(array $outbound): bool
-    {
-        if (($outbound['protocol'] ?? '') !== 'vless') {
-            return false;
-        }
-
-        $stream = $outbound['streamSettings'] ?? [];
-
-        $isXhttp = ($stream['network'] ?? '') === 'xhttp';
-        $isTls = ($stream['security'] ?? '') === 'tls';
-
-        $extra = $stream['xhttpSettings']['extra'] ?? null;
-        $hasExtra = !empty($extra); // Сработает и на непустой массив, и на непустую строку/json
-
-        return $isXhttp && $isTls && $hasExtra;
     }
 }

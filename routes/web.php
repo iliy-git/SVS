@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\TelegramController;
 use App\Http\Controllers\SubscriptionController;
 use App\Models\Setting;
 use Illuminate\Routing\Attributes\Controllers\Middleware;
@@ -13,6 +14,10 @@ if (Schema::hasTable('settings')) {
 
 Route::prefix($adminPrefix)->group(function () {
     require __DIR__.'/auth.php';
+});
+
+Route::prefix($adminPrefix)->group(function () {
+    Route::get('/telegram/subscriptions/{telegramId}', [TelegramController::class, 'getSubscriptions']);
 });
 Route::middleware(['auth', 'verified'])->prefix($adminPrefix)->group(function () {
     Route::livewire('/dashboard', 'dashboard')->name('dashboard');
@@ -41,8 +46,9 @@ Route::middleware(['auth', 'verified'])->prefix($adminPrefix)->group(function ()
     Route::livewire('/nodes/edit/{nodeId}', 'nodes.edit')->name('nodes.edit');
 
 });
-
+Route::livewire('/sub/{token}', 'subscription-page')->name('subscription.page');
 Route::get('/s/{token}', [SubscriptionController::class, 'show'])->name('subscription.raw');
+
 
 Route::post('/telegram/webhook', [App\Http\Controllers\TelegramWebhookController::class, 'handle'])
     ->name('telegram.webhook');

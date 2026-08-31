@@ -6,7 +6,7 @@ use App\Models\Client;
 use Livewire\Attributes\Layout;
 
 new class extends Component {
-    public $name, $phone, $address, $additional_info;
+    public $name, $phone, $address, $additional_info, $telegram_id;
 
     public function save(ClientService $service)
     {
@@ -15,6 +15,7 @@ new class extends Component {
             'phone' => $this->phone,
             'address' => $this->address,
             'additional_info' => $this->additional_info,
+            'telegram_id' => $this->telegram_id,
         ];
 
         $service->createClient($data);
@@ -37,6 +38,10 @@ new class extends Component {
                         <div class="col-md-6">
                             <label class="form-label small fw-bold">Телефон</label>
                             <input type="text" wire:model="phone" class="form-control bg-light border-0">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">Telegram ID</label>
+                            <input type="text" wire:model="telegram_id" class="form-control bg-light border-0" placeholder="1751183398">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label small fw-bold">Адрес</label>

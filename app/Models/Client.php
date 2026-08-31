@@ -11,7 +11,8 @@ class Client extends Model
         'name',
         'phone',
         'address',
-        'additional_info'
+        'additional_info',
+        'telegram_id'
     ];
 
     public function subscriptions()
