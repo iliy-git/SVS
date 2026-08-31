@@ -74,6 +74,7 @@ class ClientService
             'phone'   => 'nullable|string|max:20',
             'address' => 'nullable|string|max:500',
             'additional_info' => 'nullable|string',
+            'telegram_id' => 'nullable|string|max:255',
         ];
     }
 
