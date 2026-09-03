@@ -9,6 +9,7 @@ use Livewire\Component;
 new #[Layout('layouts.guest')] class extends Component
 {
     public string $token;
+    public bool $showResetSuccess = false;
 
     public function mount(string $token)
     {
@@ -38,6 +39,29 @@ new #[Layout('layouts.guest')] class extends Component
     public function happUrl()
     {
         return app(SubscriptionService::class)->getHappUrl($this->subscription->id);
+    }
+
+    #[Computed]
+    public function incyUrl()
+    {
+        if (!$this->happUrl) {
+            return null;
+        }
+
+        // Заменяем strictly только "happ://" в самом начале URL на "incy://"
+        return preg_replace('/^happ:\/\//i', 'incy://', $this->happUrl);
+    }
+    /**
+     * Пользовательский сброс устройства
+     */
+    public function resetDevice()
+    {
+        app(SubscriptionService::class)->resetDevice($this->subscription->id);
+
+        $this->showResetSuccess = true;
+
+        // Обновляем модель в компоненте
+        unset($this->subscription);
     }
 
     public function formatBytes($bytes, $precision = 2): string
@@ -154,15 +178,6 @@ new #[Layout('layouts.guest')] class extends Component
             margin-bottom: 0.75rem;
         }
 
-        /* Трафик и прогресс-бар */
-        .traffic-card {
-            background: rgba(10, 14, 23, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 18px;
-            padding: 1.25rem;
-            margin-bottom: 1.25rem;
-        }
-
         .progress-bar-container {
             width: 100%;
             height: 8px;
@@ -273,31 +288,87 @@ new #[Layout('layouts.guest')] class extends Component
             gap: 2px;
         }
 
+        /* Кнопки действия */
+        .action-buttons-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+
+        @media (max-width: 400px) {
+            .action-buttons-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .btn-action {
             width: 100%;
-            padding: 0.875rem 1.25rem;
+            padding: 0.875rem 1rem;
             border-radius: 14px;
             font-weight: 600;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
+            gap: 8px;
             cursor: pointer;
             transition: all 0.2s ease;
-            text-decoration: none;
             border: none;
             outline: none;
             box-sizing: border-box;
+            text-align: center;
+            user-select: none;
         }
+        .btn-reset {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border-radius: 14px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            color: #f87171;
+            margin-top: 1rem;
+        }
+        .btn-reset:hover {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: rgba(239, 68, 68, 0.4);
+        }
+        .alert-success {
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+            padding: 0.75rem 1rem;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            text-align: center;
+            margin-top: 1rem;
+        }
+
         .btn-primary-happ {
             background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
             color: #ffffff !important;
-            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.35);
+            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.3);
         }
         .btn-primary-happ:hover {
             transform: translateY(-2px);
-            box-shadow: 0 12px 25px rgba(99, 102, 241, 0.5);
+            box-shadow: 0 12px 25px rgba(99, 102, 241, 0.45);
+        }
+
+        .btn-secondary-incy {
+            background: linear-gradient(135deg, #a855f7 0%, #9333ea 100%);
+            color: #ffffff !important;
+            box-shadow: 0 8px 20px rgba(168, 85, 247, 0.3);
+        }
+        .btn-secondary-incy:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 25px rgba(168, 85, 247, 0.45);
         }
     </style>
 
@@ -316,7 +387,7 @@ new #[Layout('layouts.guest')] class extends Component
                 {{ $this->subscription->name }}
             </h2>
             <p style="font-size: 0.85rem; color: #9ca3af; margin: 0 0 1rem 0;">
-                Клиент: {{ $this->subscription->client->name ?? 'Пользователь' }}
+                Клиент: {{ $this->subscription->clients->first()?->name ?? 'Пользователь' }}
             </p>
 
             @php
@@ -391,13 +462,6 @@ new #[Layout('layouts.guest')] class extends Component
             </div>
         @endif
 
-        {{-- Блок общего трафика подписки --}}
-        @php
-            $percent = ($limit > 0) ? min(100, round(($used / $limit) * 100)) : 0;
-        @endphp
-
-
-
         {{-- Сетка основной информации --}}
         <div class="info-grid">
             <div class="info-row">
@@ -459,15 +523,53 @@ new #[Layout('layouts.guest')] class extends Component
                 @endforeach
             </div>
         @endif
+        {{-- Уведомление об успешном сбросе --}}
+        @if($showResetSuccess)
+            <div class="alert-success">
+                ✓ Привязка устройства успешно сброшена!
+            </div>
+        @endif
 
-        {{-- Кнопка подключения --}}
-        <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+        {{-- Кнопка сброса устройства для пользователя --}}
+        <button type="button"
+                wire:click="resetDevice"
+                wire:confirm="Вы уверены, что хотите сбросить привязанное устройство?"
+                class="btn-reset">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                <path d="M3 3v5h5"/>
+            </svg>
+            Сбросить устройство
+        </button>
+
+        {{-- Блок кнопок подключения --}}
+        <div class="section-title" style="margin-top: 1.5rem;">
+            <span>Выберите клиент</span>
+        </div>
+
+        <div class="action-buttons-grid">
             @if($this->happUrl)
-                <a href="{{ $this->happUrl }}" class="btn-action btn-primary-happ">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                    Подключить в Happ
+                <a role="button"
+                   x-on:click.prevent="window.location.assign('{{ $this->happUrl }}')"
+                   class="btn-action btn-primary-happ">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                    Happ
+                </a>
+            @endif
+
+            @if($this->incyUrl)
+                <a role="button"
+                   x-on:click.prevent="window.location.assign('{{ $this->incyUrl }}')"
+                   class="btn-action btn-secondary-incy">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                    </svg>
+                    Incy
                 </a>
             @endif
         </div>
+
     </div>
 </div>

@@ -240,7 +240,7 @@ new class extends Component {
                                 #{{ $subscription->id }}
                             </span>
                         </div>
-                        <p class="text-muted small mt-3 mb-1">Личный токен доступа</p>
+                        <p class="text-muted small mt-3 mb-1">Ссылка подписки пользователя</p>
 
                         <div class="input-group input-group-sm">
                             @php
@@ -274,6 +274,23 @@ new class extends Component {
                                 <button class="btn btn-secondary border-0"
                                         onclick="copyToClipboard('{{ $happUrl }}', this)"
                                         title="Копировать Happ ссылку">
+                                    <i class="bi bi-link-45deg"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <p class="text-muted small mt-3 mb-1">Ссылка на подключение</p>
+                        <div class="input-group input-group-sm">
+                            @php
+                                $fullSubscriptionUrl = route('subscription.page', ['token' => $subscription->token]);
+                            @endphp
+                            <div class="input-group input-group-sm custom-url-copy">
+                                <input type="text"
+                                       class="form-control bg-dark text-info border-secondary border-opacity-25 font-monospace"
+                                       value="{{ $fullSubscriptionUrl }}"
+                                       readonly>
+                                <button class="btn btn-secondary border-0"
+                                        onclick="copyToClipboard('{{ $fullSubscriptionUrl }}', this)"
+                                        title="Копировать ссылку">
                                     <i class="bi bi-link-45deg"></i>
                                 </button>
                             </div>
