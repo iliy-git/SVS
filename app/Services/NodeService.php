@@ -79,6 +79,26 @@ class NodeService
     {
         Node::all()->each(fn($node) => $this->checkHealth($node->id));
     }
+    /**
+     * Получение списка инбаундов с ноды
+     */
+    public function getInbounds(Node $node): array
+    {
+        try {
+            $response = Http::withHeaders(['X-API-Key' => $node->api_key])
+                ->withoutVerifying()
+                ->timeout(5)
+                ->get("https://{$node->ip}:{$node->port}/inbounds");
+
+            if ($response->ok() && $response->json('status') === 'success') {
+                return $response->json('data') ?? [];
+            }
+        } catch (\Exception $e) {
+            \Log::error("Ошибка получения инбаундов с ноды #{$node->id}: " . $e->getMessage());
+        }
+
+        return [];
+    }
 
     public function createNode(array $data): Node
     {

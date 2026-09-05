@@ -1,4 +1,6 @@
 <?php
+
+use App\Models\SubscriptionTemplate;
 use Livewire\Component;
 use App\Services\ClientService;
 use App\Services\SubscriptionService;
@@ -7,7 +9,8 @@ use Livewire\Attributes\Computed;
 new class extends Component {
     public $clientId;
 
-    public function mount($clientId) {
+    public function mount($clientId)
+    {
         $this->clientId = $clientId;
     }
 
@@ -15,15 +18,23 @@ new class extends Component {
      * Ожидается фронтендом как $this->client
      */
     #[Computed]
-    public function client() {
+    public function client()
+    {
         // Используем сервис для получения клиента с подписками
         return app(ClientService::class)->findWithSubscriptions($this->clientId);
+    }
+
+    #[Computed]
+    public function templates()
+    {
+        return SubscriptionTemplate::where('is_active', true)->get();
     }
 
     /**
      * Ожидается фронтендом внутри цикла @forelse
      */
-    public function getHappUrl($subscriptionId) {
+    public function getHappUrl($subscriptionId)
+    {
         // Используем сервис для получения ссылки
         // Если ссылки нет в БД, сервис её сгенерирует и вернет
         return app(SubscriptionService::class)->getHappUrl($subscriptionId);
@@ -32,7 +43,8 @@ new class extends Component {
     /**
      * Ожидается фронтендом при клике на "Удалить"
      */
-    public function deleteSubscription($id) {
+    public function deleteSubscription($id)
+    {
         app(SubscriptionService::class)->deleteSubscription($id);
 
         // Сбрасываем кеш Computed-свойства, чтобы фронт обновил список
@@ -42,7 +54,8 @@ new class extends Component {
     /**
      * Ожидается фронтендом при клике на "Сбросить устройство"
      */
-    public function resetDevices($id) {
+    public function resetDevices($id)
+    {
         app(SubscriptionService::class)->resetDevice($id);
 
         unset($this->client);
@@ -53,7 +66,48 @@ new class extends Component {
         ]);
     }
 
-    public function extendSubscription($id, $days = 30) {
+    /**
+     * Создание подписки по умолчанию (по первому активному шаблону)
+     */
+    public function createDefaultSubscription()
+    {
+        $defaultTemplate = SubscriptionTemplate::where('is_active', true)->first();
+
+        if (!$defaultTemplate) {
+            $this->dispatch('notify', [
+                'message' => 'Нет активных шаблонов подписок!',
+                'type' => 'danger'
+            ]);
+            return;
+        }
+
+        $this->createFromTemplate($defaultTemplate->id);
+    }
+
+    /**
+     * Создание подписки на основе выбранного шаблона
+     */
+    public function createFromTemplate($templateId)
+    {
+        $subscription = app(SubscriptionService::class)->createFromTemplate($this->clientId, $templateId);
+
+        unset($this->client);
+
+        if ($subscription) {
+            $this->dispatch('notify', [
+                'message' => "Подписка «{$subscription->name}» успешно создана!",
+                'type' => 'success'
+            ]);
+        } else {
+            $this->dispatch('notify', [
+                'message' => 'Ошибка при создании подписки по шаблону',
+                'type' => 'danger'
+            ]);
+        }
+    }
+
+    public function extendSubscription($id, $days = 30)
+    {
         $success = app(SubscriptionService::class)->extendSubscription($id, $days);
 
         unset($this->client);
@@ -104,12 +158,15 @@ new class extends Component {
                  class="card border-0 shadow-lg mb-2 overflow-hidden"
                  style="background: rgba(33, 37, 41, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.15) !important; border-radius: 12px;">
                 <div class="card-body p-3 d-flex align-items-center gap-3">
-                    <div class="rounded-circle p-2 d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;"
+                    <div class="rounded-circle p-2 d-flex align-items-center justify-content-center"
+                         style="width: 32px; height: 32px;"
                          :class="note.type === 'success' ? 'bg-success bg-opacity-10 text-success' : 'bg-danger bg-opacity-10 text-danger'">
-                        <i class="bi" :class="note.type === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-circle-fill'"></i>
+                        <i class="bi"
+                           :class="note.type === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-circle-fill'"></i>
                     </div>
                     <div class="flex-grow-1 text-white small fw-medium" x-text="note.message"></div>
-                    <button type="button" class="btn p-0 text-muted shadow-none border-0 original-scale" @click="notifications = notifications.filter(n => n.id !== note.id)">
+                    <button type="button" class="btn p-0 text-muted shadow-none border-0 original-scale"
+                            @click="notifications = notifications.filter(n => n.id !== note.id)">
                         <i class="bi bi-x fs-5"></i>
                     </button>
                 </div>
@@ -121,17 +178,20 @@ new class extends Component {
         .btn-press-animation {
             transition: transform 0.1s ease, background-color 0.2s ease;
         }
+
         .btn-press-animation:active {
             transform: scale(0.95) !important;
         }
+
         .custom-dark-dropdown {
             background: rgba(33, 37, 41, 0.95) !important;
             backdrop-filter: blur(8px);
             border: 1px solid rgba(255, 255, 255, 0.15) !important;
             border-radius: 12px !important;
             min-width: 210px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
         }
+
         .custom-dark-dropdown .dropdown-item {
             color: #dee2e6 !important;
             padding: 8px 14px;
@@ -143,24 +203,28 @@ new class extends Component {
             display: flex;
             align-items: center;
         }
+
         .custom-dark-dropdown .dropdown-item:hover {
             background: rgba(255, 255, 255, 0.1) !important;
             color: #fff !important;
         }
+
         .custom-dark-divider {
             border-top: 1px solid rgba(255, 255, 255, 0.1);
             margin: 6px 0;
         }
+
         .custom-url-copy input {
             border-top-left-radius: 8px !important;
             border-bottom-left-radius: 8px !important;
         }
+
         .custom-url-copy button, .custom-url-copy span {
             border-top-right-radius: 8px !important;
             border-bottom-right-radius: 8px !important;
         }
     </style>
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
         <div>
             <nav aria-label="breadcrumb">
                 <ol class="breadcrumb mb-1">
@@ -168,11 +232,51 @@ new class extends Component {
                     <li class="breadcrumb-item active">{{ $this->client->name }}</li>
                 </ol>
             </nav>
-            <h2 class="fw-bold m-0">Управление подписками</h2>
+            <h2 class="fw-bold m-0 text-white">Управление подписками</h2>
         </div>
-        <a href="{{ route('subscriptions.create', $clientId) }}" wire:navigate class="btn btn-primary px-4 shadow-sm fw-bold">
-            <i class="bi bi-plus-circle me-2"></i>Добавить тариф
-        </a>
+
+        <div class="d-flex align-items-center gap-2">
+            <!-- Кнопка 1: Создать по умолчанию (быстрое действие) -->
+            <button wire:click="createDefaultSubscription"
+                    wire:loading.attr="disabled"
+                    class="btn btn-outline-success fw-bold px-3 shadow-sm btn-press-animation">
+                <span wire:loading.remove wire:target="createDefaultSubscription">
+                    <i class="bi bi-lightning-charge-fill me-1"></i> По умолчанию
+                </span>
+                <span wire:loading wire:target="createDefaultSubscription">
+                    <span class="spinner-border spinner-border-sm me-1" role="status"></span> Создание...
+                </span>
+            </button>
+
+            <!-- Кнопка 2: Создать по шаблону (выпадающее меню с шаблонами) -->
+            <div class="dropdown" x-data="{ open: false }">
+                <button @click="open = !open"
+                        class="btn btn-outline-info fw-bold px-3 shadow-sm btn-press-animation dropdown-toggle">
+                    <i class="bi bi-layers-fill me-1"></i> Выбрать шаблон
+                </button>
+                <div x-show="open"
+                     @click.away="open = false"
+                     class="dropdown-menu dropdown-menu-end show custom-dark-dropdown position-absolute mt-2"
+                     style="display: none; right: 0; z-index: 1050;">
+                    <div class="dropdown-header text-muted small text-uppercase px-3 py-2 fw-bold">Доступные шаблоны
+                    </div>
+                    @forelse($this->templates as $template)
+                        <button class="dropdown-item"
+                                wire:click="createFromTemplate({{ $template->id }}); open = false">
+                            <i class="bi bi-file-earmark-check me-2 text-info"></i> {{ $template->name }}
+                        </button>
+                    @empty
+                        <div class="px-3 py-2 text-muted small">Нет активных шаблонов</div>
+                    @endforelse
+                </div>
+            </div>
+
+            <!-- Кнопка 3: Кастомная форма добавления -->
+            <a href="{{ route('subscriptions.create', $clientId) }}" wire:navigate
+               class="btn btn-primary px-3 shadow-sm fw-bold btn-press-animation">
+                <i class="bi bi-plus-circle me-1"></i> Ручной тариф
+            </a>
+        </div>
     </div>
 
     <div class="row g-3">
@@ -236,7 +340,9 @@ new class extends Component {
 
                         <div class="d-flex align-items-center gap-2 mb-1">
                             <h5 class="fw-bold text-dark m-0">{{ $subscription->name }}</h5>
-                            <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle rounded-pill text-info" title="ID подписки">
+                            <span
+                                class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle rounded-pill text-info"
+                                title="ID подписки">
                                 #{{ $subscription->id }}
                             </span>
                         </div>
@@ -316,9 +422,11 @@ new class extends Component {
         function extendCustom(subId) {
             let days = prompt("Введите количество дней для продления:", "1");
             if (days !== null && days !== "" && !isNaN(days)) {
-            @this.call('extendSubscription', subId, parseInt(days));
+            @this.call('extendSubscription', subId, parseInt(days))
+                ;
             }
         }
+
         function copyToClipboard(text, btn) {
             navigator.clipboard.writeText(text).then(() => {
                 const icon = btn.querySelector('i');

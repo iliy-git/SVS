@@ -45,6 +45,10 @@ Route::middleware(['auth', 'verified'])->prefix($adminPrefix)->group(function ()
     Route::livewire('/nodes/create', 'nodes.create')->name('nodes.create');
     Route::livewire('/nodes/edit/{nodeId}', 'nodes.edit')->name('nodes.edit');
 
+    Route::livewire('/subscription-templates', 'subscription-templates.index')->name('subscription-templates.index');
+    Route::livewire('/subscription-templates/create', 'subscription-templates.create')->name('subscription-templates.create');
+    Route::livewire('/subscription-templates/edit/{templateId}', 'subscription-templates.edit')->name('subscription-templates.edit');
+
 });
 Route::livewire('/sub/{token}', 'subscription-page')->name('subscription.page');
 Route::get('/s/{token}', [SubscriptionController::class, 'show'])->name('subscription.raw');
