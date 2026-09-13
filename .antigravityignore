@@ -1,0 +1,19 @@
+# Игнорирование системных зависимостей PHP и Node.js
+/vendor/
+/node_modules/
+
+# Игнорирование логов, сессий и кэша Laravel
+/storage/
+/bootstrap/cache/
+*.log
+
+# Игнорирование Docker и системных файлов окружения
+/.git/
+.env
+.env.*
+/docker/
+docker-compose.yml
+
+# Игнорирование статики и собранного фронтенда
+/public/build/
+/public/storage/

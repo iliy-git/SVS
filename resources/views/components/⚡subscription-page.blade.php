@@ -14,6 +14,11 @@ new #[Layout('layouts.guest')] class extends Component
     public function mount(string $token)
     {
         $this->token = $token;
+
+        $sub = Subscription::where('token', $token)->first();
+        if ($sub) {
+            app(SubscriptionService::class)->syncWithTemplate($sub);
+        }
     }
 
     #[Computed]

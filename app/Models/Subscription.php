@@ -7,17 +7,33 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Subscription extends Model
 {
-    protected $fillable = ['name', 'token', 'with_balancer', 'expires_at', 'happ_url', 'device_id', 'happ_install_code','install_limit'];
+    protected $fillable = [
+        'name',
+        'token',
+        'with_balancer',
+        'expires_at',
+        'happ_url',
+        'device_id',
+        'happ_install_code',
+        'install_limit',
+        'template_id',
+    ];
 
     protected $casts = [
         'with_balancer' => 'boolean',
         'expires_at' => 'datetime'
     ];
 
+    public function template(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(SubscriptionTemplate::class, 'template_id');
+    }
+
     public function configs(): BelongsToMany
     {
         return $this->belongsToMany(Config::class);
     }
+
     public function clients()
     {
         return $this->belongsToMany(Client::class, 'client_subscription');

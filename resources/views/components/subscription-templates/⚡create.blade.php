@@ -64,13 +64,14 @@ new class extends Component
             }
         }
 
-        $node = Node::find($this->selectedNodeId);
+        $node = Node::with('flag')->find($this->selectedNodeId);
         $inboundData = collect($this->availableInbounds)->firstWhere('id', (int)$this->selectedInboundId);
         $title = !empty($inboundData['remark']) ? $inboundData['remark'] : ($inboundData['tag'] ?? 'inbound-' . $this->selectedInboundId);
 
         $this->selectedInbounds[] = [
             'node_id'          => (int)$this->selectedNodeId,
             'node_name'        => $node->name ?? 'Node #' . $this->selectedNodeId,
+            'flag_code'        => $node->flag ? strtoupper($node->flag->code) : null,
             'inbound_id'       => (int)$this->selectedInboundId,
             'title'            => $title,
             'traffic_limit_gb' => $this->newTrafficLimitGb,
@@ -173,9 +174,19 @@ new class extends Component
                             <textarea wire:model="description" class="form-control bg-dark text-white border-0" rows="4" placeholder="Дополнительное примечание..."></textarea>
                         </div>
 
-                        <div class="form-check form-switch mt-4">
-                            <input class="form-check-input" type="checkbox" wire:model="is_active" id="isActiveSwitch">
-                            <label class="form-check-label text-white fw-bold" for="isActiveSwitch">Активный шаблон</label>
+                        <div class="tls-toggle-card p-3 mt-4 d-flex align-items-center justify-content-between {{ $is_active ? 'active-green' : '' }}"
+                             wire:click="$toggle('is_active')" style="cursor:pointer;">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-lightning-charge-fill me-2 fs-5 {{ $is_active ? 'text-success' : 'text-secondary' }}"></i>
+                                <div>
+                                    <div class="fw-bold small text-uppercase {{ $is_active ? 'text-white' : 'text-secondary' }}">Активный шаблон</div>
+                                    <div class="text-secondary" style="font-size: 11px;">Выбран по умолчанию при создании подписки</div>
+                                </div>
+                            </div>
+                            <div class="form-check m-0" onclick="event.stopPropagation()">
+                                <input class="form-check-input custom-checkbox custom-checkbox-green" type="checkbox"
+                                       wire:model.live="is_active" id="isActiveSwitch">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -230,11 +241,17 @@ new class extends Component
                                     </div>
                                 </div>
                                 <div class="col-md-4">
-                                    <div class="form-check form-switch pt-2">
-                                        <input class="form-check-input" type="checkbox" wire:model="newIsTls" id="newTlsCheck">
-                                        <label class="form-check-label text-white fw-bold small" for="newTlsCheck">
-                                            <i class="bi bi-shield-lock text-warning me-1"></i> Использовать TLS
-                                        </label>
+                                    <label class="form-label small text-muted text-uppercase fw-bold">TLS</label>
+                                    <div class="tls-toggle-card p-2 d-flex align-items-center justify-content-between {{ $newIsTls ? 'active' : '' }}"
+                                         wire:click="$toggle('newIsTls')" style="cursor:pointer;">
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-shield-lock-fill me-2 {{ $newIsTls ? 'text-warning' : 'text-secondary' }}"></i>
+                                            <span class="small fw-bold {{ $newIsTls ? 'text-white' : 'text-secondary' }}">TLS</span>
+                                        </div>
+                                        <div class="form-check m-0" onclick="event.stopPropagation()">
+                                            <input class="form-check-input custom-checkbox" type="checkbox"
+                                                   wire:model.live="newIsTls" id="newTlsCheck">
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="col-md-3">
@@ -270,8 +287,15 @@ new class extends Component
                                 @forelse($selectedInbounds as $index => $item)
                                     <tr wire:key="sel-inb-{{ $index }}" class="border-bottom border-white border-opacity-5">
                                         <td class="ps-3">
-                                            <i class="bi bi-server text-info me-2"></i>
-                                            <span class="fw-bold text-white">{{ $item['node_name'] }}</span>
+                                            <div class="d-flex align-items-center">
+                                                @if(!empty($item['flag_code']))
+                                                    <img src="https://purecatamphetamine.github.io/country-flag-icons/3x2/{{ $item['flag_code'] }}.svg"
+                                                         class="rounded-1 me-2" style="width:28px;height:19px;object-fit:cover;">
+                                                @else
+                                                    <i class="bi bi-server text-info me-2"></i>
+                                                @endif
+                                                <span class="fw-bold text-white">{{ $item['node_name'] }}</span>
+                                            </div>
                                         </td>
                                         <td>
                                             <div class="fw-bold text-white">{{ $item['title'] }}</div>
@@ -281,8 +305,9 @@ new class extends Component
                                             <input type="number" min="0" wire:model="selectedInbounds.{{ $index }}.traffic_limit_gb" class="form-control form-control-sm bg-dark text-white border-0 text-center px-1" title="0 = Безлимит">
                                         </td>
                                         <td class="text-center">
-                                            <div class="form-check form-switch d-inline-block m-0">
-                                                <input class="form-check-input" type="checkbox" wire:model="selectedInbounds.{{ $index }}.is_tls">
+                                            <div class="tls-toggle-mini {{ $item['is_tls'] ? 'active' : '' }}"
+                                                 wire:click="$set('selectedInbounds.{{ $index }}.is_tls', {{ $item['is_tls'] ? 'false' : 'true' }})">
+                                                <i class="bi bi-shield-lock-fill {{ $item['is_tls'] ? 'text-warning' : 'text-secondary opacity-50' }}"></i>
                                             </div>
                                         </td>
                                         <td>
@@ -317,3 +342,52 @@ new class extends Component
         </div>
     </form>
 </div>
+
+<style>
+    .tls-toggle-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        transition: all 0.2s ease;
+    }
+    .tls-toggle-card.active {
+        background: rgba(255, 193, 7, 0.1);
+        border-color: rgba(255, 193, 7, 0.35);
+    }
+    .tls-toggle-mini {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .tls-toggle-mini.active {
+        background: rgba(255, 193, 7, 0.15);
+        border-color: rgba(255, 193, 7, 0.4);
+    }
+    .custom-checkbox {
+        width: 1.4rem !important;
+        height: 1.4rem !important;
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .custom-checkbox:checked {
+        background-color: #ffc107 !important;
+        border-color: #ffc107 !important;
+    }
+    .active-green {
+        background: rgba(34, 197, 94, 0.08) !important;
+        border-color: rgba(34, 197, 94, 0.35) !important;
+    }
+    .custom-checkbox-green:checked {
+        background-color: #22c55e !important;
+        border-color: #22c55e !important;
+    }
+</style>

@@ -89,7 +89,7 @@ class ClientService
     public function findWithSubscriptions(int $id): Client
     {
         return Client::query()
-            ->with('subscriptions')
+            ->with(['subscriptions.template'])
             ->findOrFail($id);
     }
     /**

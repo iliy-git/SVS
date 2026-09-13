@@ -1,0 +1,21 @@
+{
+    "output": {
+        "filePath": "repomix-output.xml",
+        "style": "xml"
+    },
+    "ignore": {
+        "customPatterns": [
+            "repomix-output.*",
+            "repopack-output.*",
+            "vendor/**",
+            "node_modules/**",
+            "storage/**",
+            "public/**",
+            ".git/**",
+            "*.lock",
+            "certs/**",
+            "database/*.sqlite*",
+            "resources/views/welcome.blade.php"
+        ]
+    }
+}

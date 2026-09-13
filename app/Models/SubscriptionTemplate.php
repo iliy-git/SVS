@@ -11,6 +11,11 @@ class SubscriptionTemplate extends Model
 
     public function inbounds(): HasMany
     {
-        return $table = $this->hasMany(TemplateInbound::class, 'template_id');
+        return $this->hasMany(TemplateInbound::class, 'template_id');
+    }
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class, 'template_id');
     }
 }

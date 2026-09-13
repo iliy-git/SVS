@@ -1,0 +1,11 @@
+vendor/
+node_modules/
+storage/
+.git/
+repomix-output.*
+repopack-output.*
+database.sqlite*
+*.lock
+certs/
+public/build/
+public/hot

@@ -106,6 +106,29 @@ new class extends Component {
         }
     }
 
+    /**
+     * Ручная синхронизация подписки с шаблоном из интерфейса
+     */
+    public function syncSubscription($id)
+    {
+        $sub = \App\Models\Subscription::findOrFail($id);
+        $changed = app(SubscriptionService::class)->syncWithTemplate($sub);
+
+        unset($this->client);
+
+        if ($changed) {
+            $this->dispatch('notify', [
+                'message' => "Подписка «{$sub->name}» успешно синхронизирована с шаблоном!",
+                'type' => 'success'
+            ]);
+        } else {
+            $this->dispatch('notify', [
+                'message' => "Подписка «{$sub->name}» уже полностью соответствует актуальному шаблону",
+                'type' => 'info'
+            ]);
+        }
+    }
+
     public function extendSubscription($id, $days = 30)
     {
         $success = app(SubscriptionService::class)->extendSubscription($id, $days);
@@ -321,6 +344,13 @@ new class extends Component {
                                         <i class="bi bi-calendar-event me-2 text-info"></i> Свой срок...
                                     </button>
 
+                                    @if($subscription->template_id)
+                                        <button class="dropdown-item text-primary"
+                                                wire:click="syncSubscription({{ $subscription->id }}); open = false">
+                                            <i class="bi bi-arrow-repeat me-2 text-primary"></i> Синхронизировать с шаблоном
+                                        </button>
+                                    @endif
+
                                     <div class="custom-dark-divider"></div>
 
                                     <button class="dropdown-item text-danger"
@@ -338,13 +368,19 @@ new class extends Component {
                             </div>
                         </div>
 
-                        <div class="d-flex align-items-center gap-2 mb-1">
+                        <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
                             <h5 class="fw-bold text-dark m-0">{{ $subscription->name }}</h5>
                             <span
                                 class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle rounded-pill text-info"
                                 title="ID подписки">
                                 #{{ $subscription->id }}
                             </span>
+                            @if($subscription->template)
+                                <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle rounded-pill"
+                                      title="Создано по шаблону «{{ $subscription->template->name }}»">
+                                    <i class="bi bi-file-earmark-check me-1"></i>{{ $subscription->template->name }}
+                                </span>
+                            @endif
                         </div>
                         <p class="text-muted small mt-3 mb-1">Ссылка подписки пользователя</p>
 

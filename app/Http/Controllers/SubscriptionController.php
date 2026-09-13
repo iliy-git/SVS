@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Subscription;
 use Illuminate\Http\JsonResponse;
 use App\Models\Config;
+use Illuminate\Http\Client\Pool;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -12,21 +13,22 @@ class SubscriptionController extends Controller
 {
     public function show($token): JsonResponse
     {
-        $sub = Subscription::with(['configs' => function($query) {
-            $query->where('is_active', true);
-        }, 'configs.flag', 'configs.node'])
-            ->where('token', $token)
-            ->firstOrFail();
+        $sub = Subscription::where('token', $token)->firstOrFail();
 
         $deviceError = $this->checkDeviceBinding($sub);
         if ($deviceError) {
             return $deviceError;
         }
 
-        // Обновляем статистику всех конфигов из панелей x-ui
-        foreach ($sub->configs as $config) {
-            $this->refreshConfigStats($config);
-        }
+        // Just-in-Time (On-Demand) синхронизация структуры подписки с шаблоном
+        app(\App\Services\SubscriptionService::class)->syncWithTemplate($sub);
+
+        $sub->load(['configs' => function($query) {
+            $query->where('is_active', true);
+        }, 'configs.flag', 'configs.node']);
+
+        // Обновляем статистику конфигов из панелей x-ui параллельно (Http::pool)
+        $this->refreshAllConfigsStats($sub->configs);
 
         // Перезагружаем коллекцию после обновления данных в БД
         $sub->load(['configs' => function($query) {
@@ -292,49 +294,71 @@ class SubscriptionController extends Controller
 
         return null;
     }
-    private function refreshConfigStats(Config $config): void
+    /**
+     * Параллельное обновление статистики активных конфигов через Http::pool.
+     * Запросы ко всем нодам выполняются одновременно, а не по очереди.
+     */
+    private function refreshAllConfigsStats($configs): void
     {
-        if (!$config->is_active || !$config->node || !$config->email) {
+        $activeConfigs = $configs->filter(function (Config $c) {
+            if (!$c->is_active || !$c->node || !$c->email) {
+                return false;
+            }
+            // Если конфиг создан только что (менее 15 сек назад в JIT-синхронизации),
+            // его данные уже свежие — пропускаем, чтобы сэкономить сетевое время
+            if ($c->created_at && $c->created_at->diffInSeconds(now()) < 15) {
+                return false;
+            }
+            return true;
+        });
+
+        if ($activeConfigs->isEmpty()) {
             return;
         }
 
         try {
-            $response = Http::withHeaders([
-                'X-API-KEY' => $config->node->api_key
-            ])
-                ->timeout(3) // Рекомендуется поднять до 3 секунд, так как скрипт теперь делает чуть больше работы в БД
-                ->withoutVerifying()
-                ->get("https://{$config->node->ip}:11223/email", [
-                    'email' => $config->email
-                ]);
-
-            if ($response->ok()) {
-                $data = $response->json();
-
-                $updateData = [
-                    'up'    => $data['up'] ?? $config->up,
-                    'down'  => $data['down'] ?? $config->down,
-                    'traffic_limit' => isset($data['total']) && $data['total'] > 0
-                        ? ($data['total'] / (1024**3))
-                        : $config->traffic_limit,
-                    'expiry_time'   => $data['expiry_time'] ?? $config->expiry_time,
-                ];
-
-                // Проверяем, пришел ли линк и не пустой ли он, чтобы не затереть БД ошибкой
-                if (!empty($data['link']) && !$config->is_modernized) {
-                    $updateData['link'] = $data['link'];
+            // Параллельный опрос всех нод с жестким таймаутом 2.5 сек
+            $responses = Http::pool(function (Pool $pool) use ($activeConfigs) {
+                foreach ($activeConfigs as $config) {
+                    $pool->as($config->id)
+                        ->withHeaders([
+                            'X-API-KEY' => $config->node->api_key
+                        ])
+                        ->timeout(2.5)
+                        ->withoutVerifying()
+                        ->get("https://{$config->node->ip}:11223/email", [
+                            'email' => $config->email
+                        ]);
                 }
-                \Log::info($updateData);
+            });
 
-                // Дополнительно: обновляем статус активности из панели (описано ниже)
-                if (isset($data['is_active'])) {
-                    $updateData['is_active'] = (bool)$data['is_active'];
+            foreach ($activeConfigs as $config) {
+                $response = $responses[$config->id] ?? null;
+                if ($response && $response instanceof \Illuminate\Http\Client\Response && $response->ok()) {
+                    $data = $response->json();
+
+                    $updateData = [
+                        'up'    => $data['up'] ?? $config->up,
+                        'down'  => $data['down'] ?? $config->down,
+                        'traffic_limit' => isset($data['total']) && $data['total'] > 0
+                            ? ($data['total'] / (1024**3))
+                            : $config->traffic_limit,
+                        'expiry_time'   => $data['expiry_time'] ?? $config->expiry_time,
+                    ];
+
+                    if (!empty($data['link']) && !$config->is_modernized) {
+                        $updateData['link'] = $data['link'];
+                    }
+
+                    if (isset($data['is_active'])) {
+                        $updateData['is_active'] = (bool)$data['is_active'];
+                    }
+
+                    $config->update($updateData);
                 }
-
-                $config->update($updateData);
             }
         } catch (\Exception $e) {
-            \Log::error("Failed to refresh stats and link for {$config->email} on node {$config->node->ip}: " . $e->getMessage());
+            Log::error("Failed in refreshAllConfigsStats: " . $e->getMessage());
         }
     }
 
