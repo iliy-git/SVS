@@ -28,4 +28,9 @@ class Node extends Model
     {
         return $this->belongsTo(Flag::class);
     }
+    
+    public function configs()
+    {
+        return $this->hasMany(Config::class);
+    }
 }

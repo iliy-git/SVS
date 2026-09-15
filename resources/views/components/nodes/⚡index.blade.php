@@ -108,8 +108,11 @@ new class extends Component {
                                 <div class="btn-group gap-1">
                                     <button wire:click="checkConnection({{ $node->id }})" class="btn btn-sm btn-dark border-0 rounded-2"><i class="bi bi-arrow-repeat text-success"></i></button>
                                     <a href="{{ route('nodes.edit', $node->id) }}" wire:navigate class="btn btn-sm btn-dark border-0 rounded-2"><i class="bi bi-pencil-square text-primary"></i></a>
-                                    <button wire:click="deleteNode({{ $node->id }})" wire:confirm="Удалить?" class="btn btn-sm btn-dark border-0 rounded-2"><i class="bi bi-trash3 text-danger"></i></button>
-                                </div>
+                                    <button wire:click="deleteNode({{ $node->id }})" 
+                                            wire:confirm="Вы уверены, что хотите удалить эту ноду? ВНИМАНИЕ: Все связанные с ней конфиги также будут удалены!" 
+                                            class="btn btn-sm btn-dark border-0 rounded-2">
+                                        <i class="bi bi-trash3 text-danger"></i>
+                                    </button>
                             </td>
                         </tr>
                     @endforeach
@@ -151,7 +154,12 @@ new class extends Component {
                             </div>
                             <div class="d-flex gap-2">
                                 <a href="{{ route('nodes.edit', $node->id) }}" wire:navigate class="btn btn-dark btn-sm flex-grow-1 py-2 fw-bold border-0" style="background: rgba(255,255,255,0.05);">ИЗМЕНИТЬ</a>
-                                <button wire:click="deleteNode({{ $node->id }})" wire:confirm="Удалить?" class="btn btn-dark btn-sm px-3 border-0" style="background: rgba(220, 53, 69, 0.1);"><i class="bi bi-trash text-danger"></i></button>
+                                <button wire:click="deleteNode({{ $node->id }})" 
+                                    wire:confirm="Вы уверены, что хотите удалить эту ноду? ВНИМАНИЕ: Все связанные с ней конфиги также будут удалены!" 
+                                    class="btn btn-sm btn-dark border-0 rounded-2">
+                                <i class="bi bi-trash3 text-danger"></i>
+                            </button>
+                            </button>
                             </div>
                         </div>
                     </div>

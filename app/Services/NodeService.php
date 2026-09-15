@@ -110,8 +110,16 @@ class NodeService
         return Node::findOrFail($id)->update($data);
     }
 
-    public function deleteNode(int $id): bool
+    public function deleteNode($id)
     {
-        return Node::findOrFail($id)->delete();
+        // Находим ноду
+        $node = \App\Models\Node::findOrFail($id);
+        
+        // 1. СНАЧАЛА удаляем все конфиги, которые привязаны к этой ноде.
+        // Это безопасно удалит их из базы данных.
+        $node->configs()->delete();
+        
+        // 2. ЗАТЕМ удаляем саму ноду
+        $node->delete();
     }
 }

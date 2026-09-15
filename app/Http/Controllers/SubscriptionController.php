@@ -25,7 +25,7 @@ class SubscriptionController extends Controller
 
         $sub->load(['configs' => function($query) {
             $query->where('is_active', true);
-        }, 'configs.flag', 'configs.node']);
+        }, 'configs.flag', 'configs.node.flag']);
 
         // Обновляем статистику конфигов из панелей x-ui параллельно (Http::pool)
         $this->refreshAllConfigsStats($sub->configs);
@@ -33,7 +33,7 @@ class SubscriptionController extends Controller
         // Перезагружаем коллекцию после обновления данных в БД
         $sub->load(['configs' => function($query) {
             $query->where('is_active', true);
-        }, 'configs.flag', 'configs.node']);
+        }, 'configs.flag', 'configs.node.flag']);
 
         // === НОВАЯ ЛОГИКА: СИНХРОНИЗАЦИЯ ДАТЫ ОКОНЧАНИЯ ===
 
@@ -113,7 +113,7 @@ class SubscriptionController extends Controller
                     : number_format($usedTotal / 1024**2, 1) . "MB";
 
                 $limitLabel = ($conf->traffic_limit > 0) ? "{$conf->traffic_limit}GB" : "∞";
-                $flagEmoji = $conf->flag ? $conf->flag->emoji : "🚀";
+                $flagEmoji = $conf->node?->flag?->emoji ?? $conf->flag?->emoji ?? "🚀";;
                 $configName = $conf->name ?: $conf->email;
 
                 $displayName = "{$flagEmoji} {$configName} | {$usedLabel} / {$limitLabel}";
