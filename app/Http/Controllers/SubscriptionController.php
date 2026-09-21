@@ -534,8 +534,8 @@ class SubscriptionController extends Controller
             "tag" => "block"
         ];
         $directDomains = [
-            "regexp:.*\\.ru$",
-            "regexp:.*\\.su$",
+            //"regexp:.*\\.ru$",
+            //"regexp:.*\\.su$",
             "regexp:.*\\.by$",
             "regexp:.*\\.xn--p1ai$",
             "regexp:^(.+\\.)?mail\\.ru$",
