@@ -320,6 +320,35 @@ public function createFromTemplate(int $clientId, int $templateId): ?Subscriptio
         return $subscription;
     });
 }
+/**
+ * Привязываеи шаблон к подписке полностью удаляет сущесвующие конфиги
+ * и генерирует их заново по выбранному шаблону
+ */
+public function attachAndSyncTemplate(Subscription $subscription, int $templateId): bool
+{
+    $template = SubscriptionTemplate::with(['inbounds.node.flag'])->find($templateId);
+    if (!$template || !$template->is_active) {
+        return false;
+    }
+    return DB::transaction(function() use ($subscription, $templateId) {
+        $subscription->update([
+            'template_id' => $templateId,
+            'is_active' => true,
+        ]);
+
+        $subscription->loadMissing(['configs.node']);
+        foreach ($subscription->configs as $config) {
+            $subscription->configs()->detach($config->id);
+            $config->delete();
+        }
+
+        $subscription->unsetRelation('configs');
+        
+        return $this->syncWithTemplate($subscription);
+
+    });
+}
+
 
 /**
  * Just-in-Time (On-Demand) синхронизация подписки с актуальным состоянием шаблона.

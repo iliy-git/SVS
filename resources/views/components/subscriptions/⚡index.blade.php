@@ -5,6 +5,7 @@ use Livewire\Component;
 use App\Services\ClientService;
 use App\Services\SubscriptionService;
 use Livewire\Attributes\Computed;
+use App\Models\Subscription;
 
 new class extends Component {
     public $clientId;
@@ -144,6 +145,25 @@ new class extends Component {
             $this->dispatch('notify', [
                 'message' => 'Ошибка при продлении',
                 'type' => 'danger'
+            ]);
+        }
+    }
+    public function attachAndSyncTemplate($subscriptionId, $templateId)
+    {
+        $sub = Subscription::findOrFail($subscriptionId);
+        $changed = app(SubscriptionService::class)->attachAndSyncTemplate($sub, $templateId);
+
+        unset($this->client);
+
+        if ($changed) {
+            $this->dispatch('notify', [
+                'message' => "Подписка «{$sub->name}» успешно синхронизирована с шаблоном!",
+                'type' => 'success'
+            ]);
+        } else {
+            $this->dispatch('notify', [
+                'message' => "Подписка «{$sub->name}» уже полностью соответствует актуальному шаблону",
+                'type' => 'info'
             ]);
         }
     }
@@ -349,6 +369,15 @@ new class extends Component {
                                                 wire:click="syncSubscription({{ $subscription->id }}); open = false">
                                             <i class="bi bi-arrow-repeat me-2 text-primary"></i> Синхронизировать с шаблоном
                                         </button>
+                                    @else
+                                        <div class="dropdown-header text-muted small text-uppercase px-3 py-1">Сменить/привязать шаблон</div>
+                                        @foreach($this->templates as $tpl)
+                                            <button class="dropdown-item text-info"
+                                                    wire:click="attachAndSyncTemplate({{ $subscription->id }}, {{ $tpl->id }}); open = false"
+                                                    wire:confirm="Все текущие конфиги подписки будут удалены и созданы заново по шаблону. Продолжить?">
+                                                <i class="bi bi-link-45deg me-2 text-info"></i> {{ $tpl->name }}
+                                            </button>
+                                        @endforeach
                                     @endif
 
                                     <div class="custom-dark-divider"></div>
