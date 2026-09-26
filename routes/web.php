@@ -18,6 +18,8 @@ Route::prefix($adminPrefix)->group(function () {
 
 Route::prefix($adminPrefix)->group(function () {
     Route::get('/telegram/subscriptions/{telegramId}', [TelegramController::class, 'getSubscriptions']);
+
+    Route::post('/telegram/clients', [TelegramController::class, 'storeClient']);
 });
 Route::middleware(['auth', 'verified'])->prefix($adminPrefix)->group(function () {
     Route::livewire('/dashboard', 'dashboard')->name('dashboard');

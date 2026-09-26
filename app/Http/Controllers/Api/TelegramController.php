@@ -36,4 +36,60 @@ class TelegramController extends Controller
             ]
         ], 200);
     }
+
+    /**
+     * Создание нового клиента через API (с проверкой на дубликаты)
+     */
+    public function storeClient(Request $request, ClientService $service): JsonResponse
+    {
+        $data = $request->only(['name', 'phone', 'address', 'additional_info', 'telegram_id']);
+
+        if (!empty($data['telegram_id'])) {
+            $existingClient = \App\Models\Client::where('telegram_id', $data['telegram_id'])->first();
+            
+            if ($existingClient) {
+                return response()->json([
+                    'success' => true,
+                    'status' => 'already_exists',
+                    'client' => $existingClient
+                ], 200);
+            }
+        }
+
+        if (!empty($data['phone'])) {
+            $existingClientByPhone = \App\Models\Client::where('phone', $data['phone'])->first();
+            
+            if ($existingClientByPhone) {
+                return response()->json([
+                    'success' => true,
+                    'status' => 'already_exists',
+                    'client' => $existingClientByPhone
+                ], 200);
+            }
+        }
+
+        try {
+            $data['name'] = $data['name'] ?? 'Клиент из Telegram';
+            
+            $newClient = $service->createClient($data);
+
+            return response()->json([
+                'success' => true,
+                'status' => 'created',
+                'client' => $newClient
+            ], 201);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Ошибка валидации',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Внутренняя ошибка сервера: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }
