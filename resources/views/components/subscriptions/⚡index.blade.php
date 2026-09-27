@@ -70,7 +70,7 @@ new class extends Component {
     /**
      * Создание подписки по умолчанию (по первому активному шаблону)
      */
-    public function createDefaultSubscription()
+    public function createDefaultSubscription($installLimit = 1)
     {
         $defaultTemplate = SubscriptionTemplate::where('is_active', true)->first();
 
@@ -82,15 +82,15 @@ new class extends Component {
             return;
         }
 
-        $this->createFromTemplate($defaultTemplate->id);
+        $this->createFromTemplate($defaultTemplate->id, $installLimit);
     }
 
     /**
      * Создание подписки на основе выбранного шаблона
      */
-    public function createFromTemplate($templateId)
+    public function createFromTemplate($templateId, $installLimit = 1)
     {
-        $subscription = app(SubscriptionService::class)->createFromTemplate($this->clientId, $templateId);
+        $subscription = app(SubscriptionService::class)->createFromTemplate($this->clientId, $templateId, (int)$installLimit);
 
         unset($this->client);
 
@@ -280,7 +280,7 @@ new class extends Component {
 
         <div class="d-flex align-items-center gap-2">
             <!-- Кнопка 1: Создать по умолчанию (быстрое действие) -->
-            <button wire:click="createDefaultSubscription"
+            <button onclick="promptCreateDefault()"
                     wire:loading.attr="disabled"
                     class="btn btn-outline-success fw-bold px-3 shadow-sm btn-press-animation">
                 <span wire:loading.remove wire:target="createDefaultSubscription">
@@ -304,8 +304,10 @@ new class extends Component {
                     <div class="dropdown-header text-muted small text-uppercase px-3 py-2 fw-bold">Доступные шаблоны
                     </div>
                     @forelse($this->templates as $template)
+                        <!-- ИЗМЕНЕНО: Вызываем JS-функцию -->
                         <button class="dropdown-item"
-                                wire:click="createFromTemplate({{ $template->id }}); open = false">
+                                onclick="promptCreateTemplate({{ $template->id }}, '{{$template->name }}');"
+                                @click="open = false">
                             <i class="bi bi-file-earmark-check me-2 text-info"></i> {{ $template->name }}
                         </button>
                     @empty
@@ -313,7 +315,6 @@ new class extends Component {
                     @endforelse
                 </div>
             </div>
-
             <!-- Кнопка 3: Кастомная форма добавления -->
             <a href="{{ route('subscriptions.create', $clientId) }}" wire:navigate
                class="btn btn-primary px-3 shadow-sm fw-bold btn-press-animation">
@@ -501,6 +502,19 @@ new class extends Component {
                     icon.className = originalClass;
                 }, 1500);
             });
+        }
+        function promptCreateDefault() {
+            let limit = prompt("Укажите лимит устройств для этой подписки:", "1");
+            if (limit !== null && limit !== "" && !isNaN(limit)) {
+                @this.call('createDefaultSubscription', parseInt(limit));
+            }
+        }
+
+        function promptCreateTemplate(templateId, templateName) {
+            let limit = prompt(`Создание по шаблону «${templateName}».\nУкажите лимит устройств:`, "1");
+            if (limit !== null && limit !== "" && !isNaN(limit)) {
+                @this.call('createFromTemplate', templateId, parseInt(limit));
+            }
         }
     </script>
 </div>

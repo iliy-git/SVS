@@ -14,6 +14,7 @@ new class extends Component {
     public $token = '';
     public $with_balancer = true;
     public $expires_at;
+    public $install_limit = 1; // По умолчанию 1 устройство
 
     /**
      * Инициализация
@@ -81,6 +82,21 @@ new class extends Component {
                                 <i class="bi bi-arrow-clockwise text-white"></i>
                             </button>
                         </div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label small fw-bold text-secondary text-uppercase">Количество устройств</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-dark border-0 text-secondary" style="border-radius: 10px 0 0 10px;">
+                                <i class="bi bi-phone"></i>
+                            </span>
+                            <input type="number" wire:model="install_limit" min="1" max="100"
+                                   class="form-control bg-dark border-0 text-white py-2 shadow-none custom-input"
+                                   style="border-radius: 0 10px 10px 0;">
+                        </div>
+                        <div class="form-text text-muted" style="font-size: 11px;">
+                            Укажите лимит одновременных установок (по умолчанию: 1).
+                        </div>
+                        @error('install_limit') <small class="text-danger mt-1 d-block">{{ $message }}</small> @enderror
                     </div>
 
                     <div

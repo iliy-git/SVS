@@ -37,6 +37,7 @@ class SubscriptionService
             ],
             'with_balancer' => 'boolean',
             'expires_at'    => 'nullable|date',
+            'install_limit' => 'required|integer|min:1|max:100',
             'clientId'      => 'nullable',
             'subId'         => 'nullable',
         ];
@@ -79,6 +80,7 @@ class SubscriptionService
             'token'         => $data['token'],
             'with_balancer' => $data['with_balancer'] ?? true,
             'expires_at'    => $data['expires_at'] ?: null,
+            'install_limit' => $data['install_limit'] ?? 1,
         ]);
 
         $happUrl = (new SubscriptionController())->getHappLink($subscription->token);
@@ -107,6 +109,7 @@ class SubscriptionService
             'token'         => $data['token'],
             'with_balancer' => $data['with_balancer'] ?? true,
             'expires_at'    => $data['expires_at'] ?: null,
+            'install_limit' => $data['install_limit'] ?? 1,
         ]);
 
         // Пересоздаем ссылку, если токен изменился
@@ -134,6 +137,7 @@ class SubscriptionService
             'token'         => $sub->token,
             'with_balancer' => (bool)$sub->with_balancer,
             'expires_at'    => $sub->expires_at ? $sub->expires_at->format('Y-m-d') : '',
+            'install_limit' => (int)($sub->install_limit ?? 1),
         ];
     }
 
@@ -179,9 +183,11 @@ class SubscriptionService
     public function resetDevice(int $id): bool
     {
         $subscription = $this->findById($id);
+        $subscription->devices()->delete();
 
         return $subscription->update([
-            'device_id' => null
+            'device_id' => null,
+            'happ_install_code' => null,
         ]);
     }
 
@@ -252,7 +258,7 @@ protected function resolveConfigName($node, $templateInbound): string
 /**
  * Создание подписки по шаблону с созданием конфигов на нодах.
  */
-public function createFromTemplate(int $clientId, int $templateId): ?Subscription
+public function createFromTemplate(int $clientId, int $templateId, int $installLimit = 1): ?Subscription
 {
     $template = SubscriptionTemplate::with(['inbounds.node.flag'])->find($templateId);
 
@@ -268,7 +274,7 @@ public function createFromTemplate(int $clientId, int $templateId): ?Subscriptio
             'token'         => Str::random(32),
             'expires_at'    => now()->addDays(30),
             'with_balancer' => 1,
-            'install_limit' => 1,
+            'install_limit' => $installLimit,
             'is_active'     => true,
         ]);
 

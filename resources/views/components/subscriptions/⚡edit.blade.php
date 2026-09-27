@@ -11,7 +11,7 @@ new class extends Component {
     public $token;
     public $with_balancer;
     public $expires_at;
-
+    public $install_limit;
 
     public function mount($clientId, $subId, SubscriptionService $service)
     {
@@ -53,6 +53,21 @@ new class extends Component {
                         <label class="form-label small fw-bold text-secondary text-uppercase">Токен (Ключ)</label>
                         <input type="text" wire:model="token" class="form-control bg-dark border-0 text-white py-2 shadow-none font-monospace custom-input">
                         @error('token') <small class="text-danger mt-1 d-block">{{ $message }}</small> @enderror
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label small fw-bold text-secondary text-uppercase">Количество устройств</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-dark border-0 text-secondary" style="border-radius: 10px 0 0 10px;">
+                                <i class="bi bi-phone"></i>
+                            </span>
+                            <input type="number" wire:model="install_limit" min="1" max="100"
+                                   class="form-control bg-dark border-0 text-white py-2 shadow-none custom-input"
+                                   style="border-radius: 0 10px 10px 0;">
+                        </div>
+                        <div class="form-text text-muted" style="font-size: 11px;">
+                            Укажите лимит одновременных установок (по умолчанию: 1).
+                        </div>
+                        @error('install_limit') <small class="text-danger mt-1 d-block">{{ $message }}</small> @enderror
                     </div>
 
                     <div class="balancer-card mb-4 p-3 d-flex align-items-center justify-content-between {{ $with_balancer ? 'active' : '' }}">

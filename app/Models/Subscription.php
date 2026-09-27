@@ -38,4 +38,9 @@ class Subscription extends Model
     {
         return $this->belongsToMany(Client::class, 'client_subscription');
     }
+
+    public function devices(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(SubscriptionDevice::class);
+    }
 }

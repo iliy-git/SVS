@@ -210,6 +210,10 @@ class SubscriptionController extends Controller
 
                 if ($sub) {
                     $sub->update(['happ_install_code' => $installCode]);
+                    $sub->devices()->firstOrCreate(
+                        ['happ_install_code' => $installCode],
+                        ['device_id' => null]
+                    );
                 }
 
                 $url .= (str_contains($url, '?') ? '&' : '?') . "InstallID=" . $installCode;
@@ -254,15 +258,41 @@ class SubscriptionController extends Controller
             return null;
         }
 
-        if (empty($sub->device_id)) {
-            $sub->update(['device_id' => $deviceId]);
-            \Log::info("Устройство привязано: {$deviceId} для подписки #{$sub->id}");
+        $installCode = request()->query('InstallID');
+
+        // Проверяем, привязано ли устройство
+        $deviceExists = $sub->devices()
+            ->where(function ($q) use ($deviceId, $installCode) {
+                $q->where('device_id', $deviceId);
+                if ($installCode) {
+                    $q->orWhere('happ_install_code', $installCode);
+                }
+            })->exists();
+
+        if ($deviceExists) {
             return null;
         }
 
-        // Если устройство чужое
-        if ($sub->device_id !== $deviceId) {
-            \Log::warning("Блокировка: Подписка {$sub->id} привязана к {$sub->device_id}, пришел {$deviceId}");
+        $limit = $sub->install_limit ?? 1;
+        $currentCount = $sub->devices()->count();
+
+        if ($currentCount < $limit) {
+            $sub->devices()->create([
+                'device_id' => $deviceId,
+                'happ_install_code' => $installCode,
+            ]);
+
+            if (empty($sub->device_id)) {
+                $sub->update(['device_id' => $deviceId]);
+            }
+
+            \Log::info("Устройство привязано: {$deviceId} для подписки #{$sub->id} ({$sub->devices()->count()}/{$limit})");
+            return null;
+        }
+
+        // Если лимит устройств превышен
+        if ($sub->devices()->count() >= $limit) {
+            \Log::warning("Блокировка: Подписка {$sub->id} лимит установок ({$limit}), пришел {$deviceId}");
 
             $message1 = "⚠️ ДОСТУП ОГРАНИЧЕН:";
             $message2 = "НЕОБХОДИМО ОБРАТИТЬСЯ В ТП";
@@ -368,23 +398,36 @@ class SubscriptionController extends Controller
         // Если его нет, используем User-Agent, но обрезаем его, чтобы избежать проблем с версиями.
         $currentDeviceId = request()->header('X-Device-Id') ?? md5(request()->userAgent());
 
-        // Если в базе пусто — привязываем
-        if (is_null($sub->device_id)) {
-            $sub->update(['device_id' => $currentDeviceId]);
+        $hasDevice = $sub->devices()
+            ->where(function ($q) use ($currentDeviceId) {
+                $q->where('device_id', $currentDeviceId)
+                  ->orWhere('happ_install_code', $currentDeviceId);
+            })->exists();
+
+        if ($hasDevice) {
             return null;
         }
 
-        // Если ID не совпадает
-        if ($sub->device_id !== $currentDeviceId) {
-            // Логируем для отладки, чтобы ты видел в storage/logs/laravel.log что именно не совпало
-            \Log::warning("Device mismatch for sub {$sub->token}. DB: {$sub->device_id}, Request: {$currentDeviceId}");
+        $limit = $sub->install_limit ?? 1;
+        $deviceCount = $sub->devices()->count();
 
-            return response()->json([
-                ["remarks" => "⚠️ Ошибка: Доступ только с 1 устройства!"]
-            ], 200, ['Content-Type' => 'text/plain; charset=utf-8']);
+        if ($deviceCount < $limit) {
+            $sub->devices()->create([
+                'device_id' => $currentDeviceId,
+            ]);
+
+            if (empty($sub->device_id)) {
+                $sub->update(['device_id' => $currentDeviceId]);
+            }
+
+            return null;
         }
 
-        return null;
+        \Log::warning("Device mismatch for sub {$sub->token}. DB devices: {$deviceCount}/{$limit}, Request: {$currentDeviceId}");
+
+        return response()->json([
+            ["remarks" => "⚠️ Ошибка: Доступ только с {$limit} устройств!"]
+        ], 200, ['Content-Type' => 'text/plain; charset=utf-8']);
     }
 
     private function parseOutbound($link, $tag)
