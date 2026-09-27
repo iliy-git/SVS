@@ -266,7 +266,7 @@ public function createFromTemplate(int $clientId, int $templateId, int $installL
         return null;
     }
 
-    return DB::transaction(function () use ($clientId, $template) {
+    return DB::transaction(function () use ($clientId, $template, $installLimit) {
         // 1. Создаем подписку
         $subscription = Subscription::create([
             'template_id'   => $template->id,
