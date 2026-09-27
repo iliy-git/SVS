@@ -20,6 +20,15 @@ use App\Http\Controllers\SubscriptionController;
  */
 class SubscriptionService
 {
+    protected NodeApiService $nodeApi;
+    protected HappApiService $happApi;
+
+    // Внедряем NodeApiService через конструктор
+    public function __construct(NodeApiService $nodeApi, HappApiService $happApi)
+    {
+        $this->nodeApi = $nodeApi;
+        $this->happApi = $happApi;
+    }
     /**
      * Конфигурация правил валидации
      *
@@ -83,7 +92,7 @@ class SubscriptionService
             'install_limit' => $data['install_limit'] ?? 1,
         ]);
 
-        $happUrl = (new SubscriptionController())->getHappLink($subscription->token);
+        $happUrl = $this->happApi->generateLink($subscription);
         $subscription->update(['happ_url' => $happUrl]);
 
         $client = Client::findOrFail($clientId);
@@ -114,7 +123,7 @@ class SubscriptionService
 
         // Пересоздаем ссылку, если токен изменился
         if ($oldToken !== $data['token']) {
-            $happUrl = (new SubscriptionController())->getHappLink($subscription->token);
+            $happUrl = $this->happApi->generateLink($subscription);
             $subscription->update(['happ_url' => $happUrl]);
         }
 
@@ -155,7 +164,7 @@ class SubscriptionService
             return $sub->happ_url;
         }
 
-        $happUrl = (new SubscriptionController())->getHappLink($sub->token);
+        $happUrl = $this->happApi->generateLink($sub);
         $sub->update(['happ_url' => $happUrl]);
 
         return $happUrl;
@@ -218,23 +227,12 @@ class SubscriptionService
             // Динамический расчет времени: $days * 24 часа * 60 мин * 60 сек * 1000 мс
             $newExpiryMs = $baseTime + ($days * 24 * 60 * 60 * 1000);
 
-            try {
-                $response = \Illuminate\Support\Facades\Http::withHeaders([
-                    'X-API-KEY' => $config->node->api_key
-                ])
-                    ->withoutVerifying()
-                    ->timeout(5)
-                    ->post("https://{$config->node->ip}:11223/email/extend", [
-                        'email' => $config->email,
-                        'days'  => $days // Передаем количество дней в наш API
-                    ]);
+            // === ВЫЗЫВАЕМ ВНЕШНИЙ СЕРВИС ===
+            $isExtended = $this->nodeApi->extendClientOnNode($config, $days);
 
-                if ($response->successful()) {
-                    $config->update(['expiry_time' => $newExpiryMs, 'is_active' => true]);
-                    $updatedConfigs++;
-                }
-            } catch (\Exception $e) {
-                \Log::error("Сбой ноды {$config->node->ip}: " . $e->getMessage());
+            if ($isExtended) {
+                $config->update(['expiry_time' => $newExpiryMs, 'is_active' => true]);
+                $updatedConfigs++;
             }
         }
 
@@ -244,434 +242,284 @@ class SubscriptionService
         }
         return false;
     }
-/*
- * Формирует читаемое название конфигурации.
- */
-protected function resolveConfigName($node, $templateInbound): string
-{
-    $baseName = $node->name ?? ('Node ' . $node->id);
-    $isBypass = !empty($templateInbound->is_main) || !empty($templateInbound->is_tls);
+    /**
+     * Формирует читаемое название конфигурации.
+     */
+    protected function resolveConfigName($node, $templateInbound): string
+    {
+        $baseName = $node->name ?? ('Node ' . $node->id);
+        $isBypass = !empty($templateInbound->is_main) || !empty($templateInbound->is_tls);
 
-    return $isBypass ? "{$baseName} (Обход БС)" : $baseName;
-}
-
-/**
- * Создание подписки по шаблону с созданием конфигов на нодах.
- */
-public function createFromTemplate(int $clientId, int $templateId, int $installLimit = 1): ?Subscription
-{
-    $template = SubscriptionTemplate::with(['inbounds.node.flag'])->find($templateId);
-
-    if (!$template) {
-        return null;
+        return $isBypass ? "{$baseName} (Обход БС)" : $baseName;
     }
 
-    return DB::transaction(function () use ($clientId, $template, $installLimit) {
-        // 1. Создаем подписку
-        $subscription = Subscription::create([
-            'template_id'   => $template->id,
-            'name'          => $template->name,
-            'token'         => Str::random(32),
-            'expires_at'    => now()->addDays(30),
-            'with_balancer' => 1,
-            'install_limit' => $installLimit,
-            'is_active'     => true,
-        ]);
+    /**
+     * Создание подписки по шаблону с созданием конфигов на нодах.
+     */
+    public function createFromTemplate(int $clientId, int $templateId, int $installLimit = 1): ?Subscription
+    {
+        $template = SubscriptionTemplate::with(['inbounds.node.flag'])->find($templateId);
 
-        // 2. Привязываем подписку к клиенту
-        DB::table('client_subscription')->insert([
-            'client_id'       => $clientId,
-            'subscription_id' => $subscription->id,
-        ]);
+        if (!$template) {
+            return null;
+        }
 
-        // 3. Создаем конфиги для каждого инбаунда шаблона
-        foreach ($template->inbounds as $templateInbound) {
+        return DB::transaction(function () use ($clientId, $template, $installLimit) {
+            // 1. Создаем подписку
+            $subscription = Subscription::create([
+                'template_id'   => $template->id,
+                'name'          => $template->name,
+                'token'         => Str::random(32),
+                'expires_at'    => now()->addDays(30),
+                'with_balancer' => 1,
+                'install_limit' => $installLimit,
+                'is_active'     => true,
+            ]);
+
+            // 2. Привязываем подписку к клиенту
+            DB::table('client_subscription')->insert([
+                'client_id'       => $clientId,
+                'subscription_id' => $subscription->id,
+            ]);
+
+            // 3. Создаем конфиги для каждого инбаунда шаблона
+            foreach ($template->inbounds as $templateInbound) {
+                $node = $templateInbound->node;
+                if (!$node) {
+                    continue;
+                }
+
+                $randomEmail = 'usr_' . Str::lower(Str::random(10)) . '@generated.local';
+                $configName  = $this->resolveConfigName($node, $templateInbound);
+                $isMain      = !empty($templateInbound->is_tls) || !empty($templateInbound->is_main);
+
+                $nodeResult = $this->nodeApi->createClientOnNode($node, [
+                        'inbound_id' => $templateInbound->inbound_id,
+                        'email'      => $randomEmail,
+                        'totalGB'    => (int)($templateInbound->traffic_limit_gb ?? 0),
+                        'days'       => 30,
+                ]);
+
+                $rawLink      = $nodeResult['link'] ?? '';
+                $isModernized = false;
+                $finalLink = $this->nodeApi->modernizeLink($rawLink, (bool)($templateInbound->is_tls ?? false), $isModernized);
+
+                $config = $subscription->configs()->create([
+                    'node_id'       => $node->id,
+                    'inbound_id'    => $templateInbound->inbound_id,
+                    'name'          => $configName,
+                    'email'         => $randomEmail,
+                    'link'          => $finalLink,
+                    'is_main'       => $isMain,
+                    'is_modernized' => $isModernized,
+                    'priority'      => $templateInbound->priority ?? 0,
+                    'traffic_limit' => $templateInbound->traffic_limit_gb ?? 0,
+                    'is_active'     => true,
+                    'flag_id'       => $node->flag->id ?? null,
+                ]);
+
+                $subscription->configs()->syncWithoutDetaching([$config->id]);
+            }
+
+            return $subscription;
+        });
+    }
+    /**
+     * Привязываеи шаблон к подписке полностью удаляет сущесвующие конфиги
+     * и генерирует их заново по выбранному шаблону
+     */
+    public function attachAndSyncTemplate(Subscription $subscription, int $templateId): bool
+    {
+        $template = SubscriptionTemplate::with(['inbounds.node.flag'])->find($templateId);
+        if (!$template || !$template->is_active) {
+            return false;
+        }
+        return DB::transaction(function() use ($subscription, $templateId) {
+            $subscription->update([
+                'template_id' => $templateId,
+                'is_active' => true,
+            ]);
+
+            $subscription->loadMissing(['configs.node']);
+            foreach ($subscription->configs as $config) {
+                $subscription->configs()->detach($config->id);
+                $config->delete();
+            }
+
+            $subscription->unsetRelation('configs');
+
+            return $this->syncWithTemplate($subscription);
+
+        });
+    }
+
+
+    /**
+     * Just-in-Time (On-Demand) синхронизация подписки с актуальным состоянием шаблона.
+     * Вызывается при обращении клиента за подпиской.
+     */
+    public function syncWithTemplate(Subscription $subscription): bool
+    {
+        if (empty($subscription->template_id)) {
+            return false;
+        }
+
+        $template = SubscriptionTemplate::with(['inbounds.node.flag'])->find($subscription->template_id);
+        if (!$template || !$template->is_active) {
+            return false;
+        }
+
+        $subscription->loadMissing(['configs.node', 'configs.flag']);
+        $existingConfigs  = $subscription->configs;
+        $templateInbounds = $template->inbounds;
+
+        // 1. Поиск инбаундов для добавления
+        $inboundsToAdd = $templateInbounds->filter(function ($ti) use ($existingConfigs) {
+            return !$existingConfigs->contains(function ($c) use ($ti) {
+                return (int)$c->node_id === (int)$ti->node_id && (int)$c->inbound_id === (int)$ti->inbound_id;
+            });
+        });
+
+        // 2. Поиск конфигов для удаления (уже отсутствуют в шаблоне)
+        $configsToRemove = $existingConfigs->filter(function ($c) use ($templateInbounds) {
+            if ($c->inbound_id === null) {
+                return false;
+            }
+
+            return !$templateInbounds->contains(function ($ti) use ($c) {
+                return (int)$ti->node_id === (int)$c->node_id && (int)$ti->inbound_id === (int)$c->inbound_id;
+            });
+        });
+
+        // 3. Поиск конфигов с изменившимися параметрами
+        $configsToUpdate = [];
+        foreach ($templateInbounds as $ti) {
+            $matchingConfig = $existingConfigs->first(function ($c) use ($ti) {
+                return (int)$c->node_id === (int)$ti->node_id && (int)$c->inbound_id === (int)$ti->inbound_id;
+            });
+
+            if ($matchingConfig) {
+                $expectedName        = $this->resolveConfigName($ti->node, $ti);
+                $expectedIsMain      = !empty($ti->is_tls) || !empty($ti->is_main);
+
+                $needsNameUpdate     = $matchingConfig->name !== $expectedName;
+                $needsMainUpdate     = (bool)$matchingConfig->is_main !== $expectedIsMain;
+                $needsTlsUpdate      = (bool)$matchingConfig->is_modernized !== (bool)$ti->is_tls;
+                $needsLimitUpdate    = (int)($matchingConfig->traffic_limit ?? 0) !== (int)($ti->traffic_limit_gb ?? 0);
+                $needsPriorityUpdate = (int)($matchingConfig->priority ?? 0) !== (int)($ti->priority ?? 0);
+
+                if ($needsNameUpdate || $needsMainUpdate || $needsTlsUpdate || $needsLimitUpdate || $needsPriorityUpdate) {
+                    $configsToUpdate[] = [
+                        'config'        => $matchingConfig,
+                        'inbound'       => $ti,
+                        'expected_name' => $expectedName,
+                        'expected_main' => $expectedIsMain,
+                        'needs_tls'     => $needsTlsUpdate,
+                    ];
+                }
+            }
+        }
+
+        // Быстрый выход, если расхождений нет
+        if ($inboundsToAdd->isEmpty() && $configsToRemove->isEmpty() && empty($configsToUpdate)) {
+            return false;
+        }
+
+        $hasChanges = false;
+
+        // Применяем удаление
+        foreach ($configsToRemove as $c) {
+            $subscription->configs()->detach($c->id);
+            $c->delete();
+            $hasChanges = true;
+        }
+
+        // Применяем обновление
+        foreach ($configsToUpdate as $item) {
+            /** @var \App\Models\Config $config */
+            $config  = $item['config'];
+            /** @var \App\Models\TemplateInbound $inbound */
+            $inbound = $item['inbound'];
+
+            $updateData = [
+                'name'          => $item['expected_name'],
+                'is_main'       => $item['expected_main'],
+                'priority'      => $inbound->priority ?? 0,
+                'traffic_limit' => $inbound->traffic_limit_gb ?? 0,
+            ];
+
+            if ($item['needs_tls']) {
+                $rawLink = '';
+                if ($config->node && !empty($config->email)) {
+                    $baseUrl  = "https://{$config->node->ip}:11223";
+                    $apiKey   = $config->node->api_key ?? '';
+                    $linkData = $this->nodeApi->fetchLinkByEmail($baseUrl, $apiKey, $config->email);
+                    $rawLink  = $linkData['link'] ?? '';
+                }
+
+                if (empty($rawLink)) {
+                    $rawLink = $config->link;
+                }
+
+                $isModernized = false;
+                $updateData['link'] = $this->nodeApi->modernizeLink($rawLink, (bool)$inbound->is_tls, $isModernized);
+                $updateData['is_modernized'] = $isModernized;
+            }
+
+            $config->update($updateData);
+            $hasChanges = true;
+        }
+
+        // Применяем добавление новых
+        foreach ($inboundsToAdd as $templateInbound) {
             $node = $templateInbound->node;
             if (!$node) {
                 continue;
             }
 
-            $randomEmail = 'usr_' . Str::lower(Str::random(10)) . '@generated.local';
-            $configName  = $this->resolveConfigName($node, $templateInbound);
-            $isMain      = !empty($templateInbound->is_tls) || !empty($templateInbound->is_main);
+            try {
+                $randomEmail = 'usr_' . Str::lower(Str::random(10)) . '@generated.local';
+                $configName  = $this->resolveConfigName($node, $templateInbound);
+                $isMain      = !empty($templateInbound->is_tls) || !empty($templateInbound->is_main);
 
-            $nodeResult = $this->createClientOnNode($node, [
-                'inbound_id' => $templateInbound->inbound_id,
-                'email'      => $randomEmail,
-                'totalGB'    => (int)($templateInbound->traffic_limit_gb ?? 0),
-                'days'       => 30,
-            ]);
-
-            $rawLink      = $nodeResult['link'] ?? '';
-            $isModernized = false;
-            $finalLink    = $this->modernizeLink($rawLink, (bool)($templateInbound->is_tls ?? false), $isModernized);
-
-            $config = $subscription->configs()->create([
-                'node_id'       => $node->id,
-                'inbound_id'    => $templateInbound->inbound_id,
-                'name'          => $configName,
-                'email'         => $randomEmail,
-                'link'          => $finalLink,
-                'is_main'       => $isMain,
-                'is_modernized' => $isModernized,
-                'priority'      => $templateInbound->priority ?? 0,
-                'traffic_limit' => $templateInbound->traffic_limit_gb ?? 0,
-                'is_active'     => true,
-                'flag_id'       => $node->flag->id ?? null,
-            ]);
-
-            $subscription->configs()->syncWithoutDetaching([$config->id]);
-        }
-
-        return $subscription;
-    });
-}
-/**
- * Привязываеи шаблон к подписке полностью удаляет сущесвующие конфиги
- * и генерирует их заново по выбранному шаблону
- */
-public function attachAndSyncTemplate(Subscription $subscription, int $templateId): bool
-{
-    $template = SubscriptionTemplate::with(['inbounds.node.flag'])->find($templateId);
-    if (!$template || !$template->is_active) {
-        return false;
-    }
-    return DB::transaction(function() use ($subscription, $templateId) {
-        $subscription->update([
-            'template_id' => $templateId,
-            'is_active' => true,
-        ]);
-
-        $subscription->loadMissing(['configs.node']);
-        foreach ($subscription->configs as $config) {
-            $subscription->configs()->detach($config->id);
-            $config->delete();
-        }
-
-        $subscription->unsetRelation('configs');
-        
-        return $this->syncWithTemplate($subscription);
-
-    });
-}
-
-
-/**
- * Just-in-Time (On-Demand) синхронизация подписки с актуальным состоянием шаблона.
- * Вызывается при обращении клиента за подпиской.
- */
-public function syncWithTemplate(Subscription $subscription): bool
-{
-    if (empty($subscription->template_id)) {
-        return false;
-    }
-
-    $template = SubscriptionTemplate::with(['inbounds.node.flag'])->find($subscription->template_id);
-    if (!$template || !$template->is_active) {
-        return false;
-    }
-
-    $subscription->loadMissing(['configs.node', 'configs.flag']);
-    $existingConfigs  = $subscription->configs;
-    $templateInbounds = $template->inbounds;
-
-    // 1. Поиск инбаундов для добавления
-    $inboundsToAdd = $templateInbounds->filter(function ($ti) use ($existingConfigs) {
-        return !$existingConfigs->contains(function ($c) use ($ti) {
-            return (int)$c->node_id === (int)$ti->node_id && (int)$c->inbound_id === (int)$ti->inbound_id;
-        });
-    });
-
-    // 2. Поиск конфигов для удаления (уже отсутствуют в шаблоне)
-    $configsToRemove = $existingConfigs->filter(function ($c) use ($templateInbounds) {
-        if ($c->inbound_id === null) {
-            return false;
-        }
-
-        return !$templateInbounds->contains(function ($ti) use ($c) {
-            return (int)$ti->node_id === (int)$c->node_id && (int)$ti->inbound_id === (int)$c->inbound_id;
-        });
-    });
-
-    // 3. Поиск конфигов с изменившимися параметрами
-    $configsToUpdate = [];
-    foreach ($templateInbounds as $ti) {
-        $matchingConfig = $existingConfigs->first(function ($c) use ($ti) {
-            return (int)$c->node_id === (int)$ti->node_id && (int)$c->inbound_id === (int)$ti->inbound_id;
-        });
-
-        if ($matchingConfig) {
-            $expectedName        = $this->resolveConfigName($ti->node, $ti);
-            $expectedIsMain      = !empty($ti->is_tls) || !empty($ti->is_main);
-
-            $needsNameUpdate     = $matchingConfig->name !== $expectedName;
-            $needsMainUpdate     = (bool)$matchingConfig->is_main !== $expectedIsMain;
-            $needsTlsUpdate      = (bool)$matchingConfig->is_modernized !== (bool)$ti->is_tls;
-            $needsLimitUpdate    = (int)($matchingConfig->traffic_limit ?? 0) !== (int)($ti->traffic_limit_gb ?? 0);
-            $needsPriorityUpdate = (int)($matchingConfig->priority ?? 0) !== (int)($ti->priority ?? 0);
-
-            if ($needsNameUpdate || $needsMainUpdate || $needsTlsUpdate || $needsLimitUpdate || $needsPriorityUpdate) {
-                $configsToUpdate[] = [
-                    'config'        => $matchingConfig,
-                    'inbound'       => $ti,
-                    'expected_name' => $expectedName,
-                    'expected_main' => $expectedIsMain,
-                    'needs_tls'     => $needsTlsUpdate,
-                ];
-            }
-        }
-    }
-
-    // Быстрый выход, если расхождений нет
-    if ($inboundsToAdd->isEmpty() && $configsToRemove->isEmpty() && empty($configsToUpdate)) {
-        return false;
-    }
-
-    $hasChanges = false;
-
-    // Применяем удаление
-    foreach ($configsToRemove as $c) {
-        $subscription->configs()->detach($c->id);
-        $c->delete();
-        $hasChanges = true;
-    }
-
-    // Применяем обновление
-    foreach ($configsToUpdate as $item) {
-        /** @var \App\Models\Config $config */
-        $config  = $item['config'];
-        /** @var \App\Models\TemplateInbound $inbound */
-        $inbound = $item['inbound'];
-
-        $updateData = [
-            'name'          => $item['expected_name'],
-            'is_main'       => $item['expected_main'],
-            'priority'      => $inbound->priority ?? 0,
-            'traffic_limit' => $inbound->traffic_limit_gb ?? 0,
-        ];
-
-        if ($item['needs_tls']) {
-            $rawLink = '';
-            if ($config->node && !empty($config->email)) {
-                $baseUrl  = "https://{$config->node->ip}:11223";
-                $apiKey   = $config->node->api_key ?? '';
-                $linkData = $this->fetchLinkByEmail($baseUrl, $apiKey, $config->email);
-                $rawLink  = $linkData['link'] ?? '';
-            }
-
-            if (empty($rawLink)) {
-                $rawLink = $config->link;
-            }
-
-            $isModernized = false;
-            $updateData['link']          = $this->modernizeLink($rawLink, (bool)$inbound->is_tls, $isModernized);
-            $updateData['is_modernized'] = $isModernized;
-        }
-
-        $config->update($updateData);
-        $hasChanges = true;
-    }
-
-    // Применяем добавление новых
-    foreach ($inboundsToAdd as $templateInbound) {
-        $node = $templateInbound->node;
-        if (!$node) {
-            continue;
-        }
-
-        try {
-            $randomEmail = 'usr_' . Str::lower(Str::random(10)) . '@generated.local';
-            $configName  = $this->resolveConfigName($node, $templateInbound);
-            $isMain      = !empty($templateInbound->is_tls) || !empty($templateInbound->is_main);
-
-            $nodeResult = $this->createClientOnNode($node, [
-                'inbound_id' => $templateInbound->inbound_id,
-                'email'      => $randomEmail,
-                'totalGB'    => (int)($templateInbound->traffic_limit_gb ?? 0),
-                'days'       => 30,
-            ]);
-
-            $rawLink = $nodeResult['link'] ?? '';
-            if (empty($rawLink)) {
-                Log::warning("Не удалось получить ссылку для ноды #{$node->id} при JIT-синхронизации подписки #{$subscription->id}");
-                continue;
-            }
-
-            $isModernized = false;
-            $finalLink    = $this->modernizeLink($rawLink, (bool)($templateInbound->is_tls ?? false), $isModernized);
-
-            $config = $subscription->configs()->create([
-                'node_id'       => $node->id,
-                'inbound_id'    => $templateInbound->inbound_id,
-                'name'          => $configName,
-                'email'         => $randomEmail,
-                'link'          => $finalLink,
-                'is_main'       => $isMain,
-                'is_modernized' => $isModernized,
-                'priority'      => $templateInbound->priority ?? 0,
-                'traffic_limit' => $templateInbound->traffic_limit_gb ?? 0,
-                'is_active'     => true,
-                'flag_id'       => $node->flag->id ?? null,
-            ]);
-
-            $subscription->configs()->syncWithoutDetaching([$config->id]);
-            $hasChanges = true;
-        } catch (\Exception $e) {
-            Log::error("Ошибка при JIT-синхронизации ноды #{$node->id} для подписки #{$subscription->id}: " . $e->getMessage());
-        }
-    }
-
-    return $hasChanges;
-}
-
-    /**
-     * Модернизация VLESS/xHTTP ссылки под TLS + CDN
-     */
-    private function modernizeLink(string $uri, bool $isTls, bool &$isModernized): string
-    {
-        $isModernized = false;
-
-        if (!$isTls || empty($uri)) {
-            return $uri;
-        }
-
-        $parsed = parse_url($uri);
-        if (!$parsed || !isset($parsed['scheme']) || $parsed['scheme'] !== 'vless') {
-            return $uri;
-        }
-
-        $query = [];
-        if (isset($parsed['query'])) {
-            parse_str($parsed['query'], $query);
-        }
-
-        // 1. Настройки CDN и хостов
-        $cdnHost    = 'pt0pegkjoi.cdn.twcstorage.ru';
-        $headerHost = 'cdn.komap.pw';
-
-        // 2. Основной адрес и порт
-        $parsed['host'] = $cdnHost;
-        $parsed['port'] = 443;
-
-        // 3. Хардкодим полный набор параметров xHTTP + TLS
-        $query['type']     = 'xhttp';
-        $query['security'] = 'tls';
-        $query['sni']      = $cdnHost;
-        $query['fp']       = 'randomized';
-        $query['alpn']     = 'h3,h2,http/1.1';
-        $query['host']     = $headerHost;
-        $query['path']     = '/assets/vendor.js';
-        $query['mode']     = 'packet-up';
-
-        // 4. Запекаем тот самый 'extra' JSON
-        $extraData = [
-            'noGRPCHeader'       => true,
-            'seqKey'             => '_seq',
-            'seqPlacement'       => 'query',
-            'sessionIDKey'       => '_sid',
-            'sessionIDPlacement' => 'query',
-            'sessionKey'         => '_sid',
-            'sessionPlacement'   => 'query',
-            'uplinkHTTPMethod'   => 'POST',
-            'xPaddingBytes'      => '100-300',
-            'xPaddingKey'        => '_dc',
-            'xPaddingMethod'     => 'tokenish',
-            'xPaddingObfsMode'   => true,
-            'xPaddingPlacement'  => 'query',
-        ];
-
-        $query['extra'] = json_encode($extraData, JSON_UNESCAPED_SLASHES);
-
-        // Чистим мусор от 3x-ui
-        unset($query['spx'], $query['encryption']);
-
-        $isModernized = true;
-
-        // 5. Собираем итоговую ссылку
-        $user     = isset($parsed['user']) ? $parsed['user'] . '@' : '';
-        $host     = $parsed['host'];
-        $port     = ':' . $parsed['port'];
-        $path     = $parsed['path'] ?? '';
-        $fragment = '#xHTTP-PacketUp';
-
-        $queryString = '?' . http_build_query($query);
-
-        return "vless://{$user}{$host}{$port}{$path}{$queryString}{$fragment}";
-    }
-
-    /**
-     * Создание клиента на ноде через API
-     */
-    private function createClientOnNode($node, array $params): array
-    {
-        $ip = $node->ip ?? 'localhost';
-        $baseUrl = "https://{$ip}:11223";
-        $apiKey = $node->api_key ?? '';
-
-        try {
-            $addResponse = Http::withHeaders([
-                'X-API-KEY'    => $apiKey,
-                'Content-Type' => 'application/json',
-            ])
-                ->withoutVerifying()
-                ->timeout(3.5)
-                ->post("{$baseUrl}/client/add", [
-                    'inbound_id' => (int)$params['inbound_id'],
-                    'email'      => $params['email'],
-                    'totalGB'    => (int)($params['totalGB'] ?? 0),
-                    'days'       => (int)($params['days'] ?? 30),
+                $nodeResult = $this->nodeApi->createClientOnNode($node, [
+                    'inbound_id' => $templateInbound->inbound_id,
+                    'email'      => $randomEmail,
+                    'totalGB'    => (int)($templateInbound->traffic_limit_gb ?? 0),
+                    'days'       => 30,
                 ]);
 
-            if (!$addResponse->successful()) {
-                Log::error("Ошибка POST /client/add на ноде {$baseUrl} (Email: {$params['email']}): " . $addResponse->body());
-                return ['link' => ''];
-            }
+                $rawLink = $nodeResult['link'] ?? '';
+                if (empty($rawLink)) {
+                    Log::warning("Не удалось получить ссылку для ноды #{$node->id} при JIT-синхронизации подписки #{$subscription->id}");
+                    continue;
+                }
 
-            // Если ручка /client/add сразу вернула линк в ответе
-            $addData = $addResponse->json();
-            if (!empty($addData['link'])) {
-                return ['link' => $addData['link']];
-            }
+                $isModernized = false;
 
-            // Короткая пауза 250мс вместо блокирующего 2-секундного сна
-            usleep(250000);
+                $finalLink    = $this->nodeApi->modernizeLink($rawLink, (bool)($templateInbound->is_tls ?? false), $isModernized);
 
-            return $this->fetchLinkByEmail($baseUrl, $apiKey, $params['email']);
-
-        } catch (\Exception $e) {
-            Log::error("Исключение при запросе к ноде {$baseUrl} (Email: {$params['email']}): " . $e->getMessage());
-        }
-
-        return ['link' => ''];
-    }
-
-    /**
-     * Запрос ссылки с ноды по email
-     */
-    private function fetchLinkByEmail(string $baseUrl, string $apiKey, string $email): array
-    {
-        try {
-            $response = Http::withHeaders([
-                'X-API-KEY' => $apiKey,
-            ])
-                ->withoutVerifying()
-                ->timeout(2.5)
-                ->get("{$baseUrl}/email", [
-                    'email' => $email,
+                $config = $subscription->configs()->create([
+                    'node_id'       => $node->id,
+                    'inbound_id'    => $templateInbound->inbound_id,
+                    'name'          => $configName,
+                    'email'         => $randomEmail,
+                    'link'          => $finalLink,
+                    'is_main'       => $isMain,
+                    'is_modernized' => $isModernized,
+                    'priority'      => $templateInbound->priority ?? 0,
+                    'traffic_limit' => $templateInbound->traffic_limit_gb ?? 0,
+                    'is_active'     => true,
+                    'flag_id'       => $node->flag->id ?? null,
                 ]);
 
-            if ($response->successful()) {
-                $data = $response->json();
-                return [
-                    'link' => $data['link'] ?? '',
-                ];
-            } else {
-                Log::error("Ошибка GET /email для {$email} на ноде {$baseUrl}: " . $response->body());
+                $subscription->configs()->syncWithoutDetaching([$config->id]);
+                $hasChanges = true;
+            } catch (\Exception $e) {
+                Log::error("Ошибка при JIT-синхронизации ноды #{$node->id} для подписки #{$subscription->id}: " . $e->getMessage());
             }
-        } catch (\Exception $e) {
-            Log::error("Исключение при GET /email для {$email} на ноде {$baseUrl}: " . $e->getMessage());
         }
 
-        return ['link' => ''];
+        return $hasChanges;
     }
 }
