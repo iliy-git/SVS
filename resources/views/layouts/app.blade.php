@@ -416,6 +416,12 @@
             </a>
         </li>
         <li>
+            <a href="{{ route('tariffs.index') }}" wire:navigate
+               class="nav-item-link {{ request()->routeIs('tariffs.*') ? 'active' : '' }}">
+                <i class="bi bi-card-checklist"></i> Тарифы
+            </a>
+        </li>
+        <li>
             <a href="{{ route('telegram-settings') }}" wire:navigate
                class="nav-item-link {{ request()->routeIs('telegram-settings') ? 'active' : '' }}">
                 <i class="bi bi-send-check"></i> Telegram API

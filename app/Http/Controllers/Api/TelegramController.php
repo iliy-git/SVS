@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Client;
+use App\Models\Tariff;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -91,5 +92,43 @@ class TelegramController extends Controller
                 'message' => 'Внутренняя ошибка сервера: ' . $e->getMessage()
             ], 500);
         }
+    }
+    /**
+     * Возвращает список активных тарифов для Telegram бота.
+     * Формат ответа подогнан под требования бота (fallback формат).
+     */
+    public function getTariffs(): JsonResponse
+    {
+        // Достаем активные тарифы, жадно грузим items, чтобы посчитать устройства/подписки
+        $tariffs = Tariff::with('items')->where('is_active', true)->get();
+
+        $formattedTariffs = $tariffs->map(function ($tariff) {
+            // Считаем общее количество "подписок" или "устройств" в тарифе,
+            // складывая device_limit у каждого элемента тарифа
+            $totalDevices = $tariff->items->sum('device_limit');
+            
+            // Если в тарифе нет элементов (шаблонов), ставим 1 по умолчанию
+            $totalDevices = $totalDevices > 0 ? $totalDevices : 1;
+
+            return [
+                'id' => $tariff->id, // Бот будет передавать этот ID при покупке
+                'name' => $tariff->name,
+                'subscriptions_count' => $totalDevices, // Для совместимости с ботом
+                'price_rub' => (int) $tariff->price, // Цена в рублях
+                
+                // Переводим рубли в USDT (примерно, либо можно добавить поле price_usdt в БД)
+                'price_usdt' => round($tariff->price / 100, 2), 
+                
+                'period_days' => $tariff->duration_days,
+                
+                // Бейдж берем из описания или генерируем
+                'badge' => $tariff->description ?? '⚡ Стандарт', 
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $formattedTariffs
+        ]);
     }
 }

@@ -20,6 +20,9 @@ Route::prefix($adminPrefix)->group(function () {
     Route::get('/telegram/subscriptions/{telegramId}', [TelegramController::class, 'getSubscriptions']);
 
     Route::post('/telegram/clients', [TelegramController::class, 'storeClient']);
+
+    Route::get('/telegram/tariffs', [TelegramController::class, 'getTariffs']);
+    
 });
 Route::middleware(['auth', 'verified'])->prefix($adminPrefix)->group(function () {
     Route::livewire('/dashboard', 'dashboard')->name('dashboard');
@@ -50,6 +53,10 @@ Route::middleware(['auth', 'verified'])->prefix($adminPrefix)->group(function ()
     Route::livewire('/subscription-templates', 'subscription-templates.index')->name('subscription-templates.index');
     Route::livewire('/subscription-templates/create', 'subscription-templates.create')->name('subscription-templates.create');
     Route::livewire('/subscription-templates/edit/{templateId}', 'subscription-templates.edit')->name('subscription-templates.edit');
+
+    Route::livewire('/tariffs', 'tariffs.index')->name('tariffs.index');
+    Route::livewire('/tariffs/create', 'tariffs.create')->name('tariffs.create');
+    Route::livewire('/tariffs/edit/{tariffId}', 'tariffs.edit')->name('tariffs.edit');
 
 });
 Route::livewire('/sub/{token}', 'subscription-page')->name('subscription.page');
