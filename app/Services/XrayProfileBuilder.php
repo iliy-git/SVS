@@ -159,6 +159,7 @@ class XrayProfileBuilder
             'Profile-WebPageUrl'      => 'https://t.me/+DyqjfDZNgYY4NjNi',
             'Support-Url'             => 'https://t.me/+DyqjfDZNgYY4NjNi',
             'announce'                => "base64:" . base64_encode($infoText),
+            'subscription-pin'        => 'true',
         ];
     }
 
