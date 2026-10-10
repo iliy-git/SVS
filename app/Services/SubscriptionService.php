@@ -237,9 +237,15 @@ class SubscriptionService
         }
 
         if ($updatedConfigs > 0) {
-            $subscription->update(['expires_at' => \Carbon\Carbon::now()->addDays($days)]);
+            $currentExpiry = $subscription->expires_at && $subscription->expires_at->isFuture()
+                ? $subscription->expires_at
+                : \Carbon\Carbon::now();
+            $subscription->update([
+                'expires_at' => $currentExpiry->addDays($days)
+            ]);
             return true;
         }
+
         return false;
     }
     /**
