@@ -238,7 +238,7 @@ class SubscriptionService
 
         if ($updatedConfigs > 0) {
             $currentExpiry = $subscription->expires_at && $subscription->expires_at->isFuture()
-                ? $subscription->expires_at
+                ? $subscription->expires_at->copy()
                 : \Carbon\Carbon::now();
             $subscription->update([
                 'expires_at' => $currentExpiry->addDays($days)

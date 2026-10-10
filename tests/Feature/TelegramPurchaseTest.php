@@ -123,4 +123,76 @@ class TelegramPurchaseTest extends TestCase
         $response->assertJsonPath('data.telegram_id', '987654321');
         $this->assertCount(2, $response->json('data.subscriptions'));
     }
+
+    public function test_extend_subscription_requires_telegram_id(): void
+    {
+        $adminUuid = Setting::where('key', 'admin_uuid')->value('value') ?? 'admin-panel';
+
+        $response = $this->postJson("/{$adminUuid}/telegram/subscriptions/1/extend", [
+            'days' => 30,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors(['telegram_id']);
+    }
+
+    public function test_extend_subscription_checks_ownership(): void
+    {
+        $adminUuid = Setting::where('key', 'admin_uuid')->value('value') ?? 'admin-panel';
+
+        $client = Client::create(['name' => 'Owner', 'telegram_id' => '111222']);
+        $sub = Subscription::create([
+            'name' => 'Sub 1',
+            'token' => 'token111',
+            'expires_at' => now()->addDays(10),
+            'with_balancer' => true,
+            'install_limit' => 1,
+        ]);
+        $client->subscriptions()->attach($sub->id);
+
+        // Try extending with wrong telegram_id
+        $response = $this->postJson("/{$adminUuid}/telegram/subscriptions/{$sub->id}/extend", [
+            'telegram_id' => '999999', // not the owner
+            'days' => 30,
+        ]);
+
+        $response->assertStatus(403);
+        $response->assertJson(['success' => false]);
+    }
+
+    public function test_extend_subscription_success(): void
+    {
+        $adminUuid = Setting::where('key', 'admin_uuid')->value('value') ?? 'admin-panel';
+
+        $client = Client::create(['name' => 'Owner', 'telegram_id' => '333444']);
+        $sub = Subscription::create([
+            'name' => 'Sub 2',
+            'token' => 'token222',
+            'expires_at' => now()->addDays(5),
+            'with_balancer' => true,
+            'install_limit' => 1,
+        ]);
+        $client->subscriptions()->attach($sub->id);
+
+        $mockSubService = Mockery::mock(SubscriptionService::class);
+        $mockSubService->shouldReceive('extendSubscription')
+            ->once()
+            ->with($sub->id, 30)
+            ->andReturn(true);
+
+        $this->app->instance(SubscriptionService::class, $mockSubService);
+
+        $response = $this->postJson("/{$adminUuid}/telegram/subscriptions/{$sub->id}/extend", [
+            'telegram_id' => '333444',
+            'days' => 30,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'data' => [
+                'subscription_id' => $sub->id,
+            ],
+        ]);
+    }
 }

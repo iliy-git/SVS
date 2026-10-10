@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Client;
+use App\Models\Subscription;
 use App\Models\Tariff;
 use App\Services\ClientService;
+use App\Services\SubscriptionService;
 use App\Services\TariffPurchaseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -172,5 +174,48 @@ class TelegramController extends Controller
                 'subscriptions' => $result['subscriptions'],
             ],
         ], 200);
+    }
+    /**
+     * Продление подписки 
+     */
+    public function extend(Request $request, int $id, SubscriptionService $subscriptionService): JsonResponse
+    {
+        $validated = $request->validate([
+            'telegram_id' => 'required',
+            'days'        => 'nullable|integer',
+        ]);
+
+        $telegramId = (string) $validated['telegram_id'];
+        $days = (int) ($validated['days'] ?? 30);
+
+        // 1. Проверяем, что клиент существует и подписка принадлежит именно ему
+        $client = Client::where('telegram_id', $telegramId)->first();
+        if (!$client || !$client->subscriptions()->where('subscriptions.id', $id)->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Подписка не найдена или не принадлежит данному клиенту'
+            ], 403);
+        }
+
+        // 2. Вызываем SubscriptionService для продления
+        $success = $subscriptionService->extendSubscription($id, $days);
+
+        if ($success) {
+            $subscription = Subscription::find($id);
+
+            return response()->json([
+                'success' => true,
+                'message' => "Подписка успешно продлена на {$days} дн.",
+                'data' => [
+                    'subscription_id' => $subscription->id,
+                    'expires_at'      => $subscription->expires_at?->toIso8601String(),
+                ]
+            ], 200);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Не удалось продлить конфиги на нодах'
+        ], 500);
     }
 }
