@@ -22,7 +22,8 @@ Route::prefix($adminPrefix)->group(function () {
     Route::post('/telegram/clients', [TelegramController::class, 'storeClient']);
 
     Route::get('/telegram/tariffs', [TelegramController::class, 'getTariffs']);
-    
+
+    Route::post('/telegram/subscriptions/purchase', [TelegramController::class, 'purchaseTariff']);
 });
 Route::middleware(['auth', 'verified'])->prefix($adminPrefix)->group(function () {
     Route::livewire('/dashboard', 'dashboard')->name('dashboard');

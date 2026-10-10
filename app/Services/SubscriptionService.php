@@ -256,7 +256,7 @@ class SubscriptionService
     /**
      * Создание подписки по шаблону с созданием конфигов на нодах.
      */
-    public function createFromTemplate(int $clientId, int $templateId, int $installLimit = 1): ?Subscription
+    public function createFromTemplate(int $clientId, int $templateId, int $installLimit = 1, int $days = 30): ?Subscription
     {
         $template = SubscriptionTemplate::with(['inbounds.node.flag'])->find($templateId);
 
@@ -264,16 +264,15 @@ class SubscriptionService
             return null;
         }
 
-        return DB::transaction(function () use ($clientId, $template, $installLimit) {
+        return DB::transaction(function () use ($clientId, $template, $installLimit, $days) {
             // 1. Создаем подписку
             $subscription = Subscription::create([
                 'template_id'   => $template->id,
                 'name'          => $template->name,
                 'token'         => Str::random(32),
-                'expires_at'    => now()->addDays(30),
+                'expires_at'    => now()->addDays($days),
                 'with_balancer' => 1,
                 'install_limit' => $installLimit,
-                'is_active'     => true,
             ]);
 
             // 2. Привязываем подписку к клиенту
@@ -297,7 +296,7 @@ class SubscriptionService
                         'inbound_id' => $templateInbound->inbound_id,
                         'email'      => $randomEmail,
                         'totalGB'    => (int)($templateInbound->traffic_limit_gb ?? 0),
-                        'days'       => 30,
+                        'days'       => $days,
                 ]);
 
                 $rawLink      = $nodeResult['link'] ?? '';
@@ -321,6 +320,15 @@ class SubscriptionService
                 $subscription->configs()->syncWithoutDetaching([$config->id]);
             }
 
+            try {
+                $happUrl = $this->happApi->generateLink($subscription);
+                if (!empty($happUrl)) {
+                    $subscription->update(['happ_url' => $happUrl]);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[SubscriptionService] Ошибка генерации Happ ссылки: ' . $e->getMessage());
+            }
+
             return $subscription;
         });
     }
@@ -337,7 +345,6 @@ class SubscriptionService
         return DB::transaction(function() use ($subscription, $templateId) {
             $subscription->update([
                 'template_id' => $templateId,
-                'is_active' => true,
             ]);
 
             $subscription->loadMissing(['configs.node']);

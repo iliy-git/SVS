@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\Tariff;
+use App\Services\ClientService;
+use App\Services\TariffPurchaseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -130,5 +132,45 @@ class TelegramController extends Controller
             'success' => true,
             'data' => $formattedTariffs
         ]);
+    }
+
+    /**
+     * Покупка тарифа через API бота и создание подписок
+     */
+    public function purchaseTariff(Request $request, TariffPurchaseService $tariffPurchaseService): JsonResponse
+    {
+        $validated = $request->validate([
+            'telegram_id'         => 'required',
+            'tariff_id'           => 'required',
+            'subscriptions_count' => 'nullable|integer',
+            'days'                => 'nullable|integer',
+            'price'               => 'nullable|numeric',
+        ]);
+
+        $result = $tariffPurchaseService->purchase(
+            telegramId: (string) $validated['telegram_id'],
+            tariffId:   $validated['tariff_id'],
+            subsCount:  (int) ($validated['subscriptions_count'] ?? 1),
+            days:       isset($validated['days']) ? (int) $validated['days'] : null,
+            price:      isset($validated['price']) ? (float) $validated['price'] : null,
+        );
+
+        if (!$result['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => $result['message'] ?? 'Не удалось создать подписки по тарифу',
+                'errors'  => $result['errors'] ?? [],
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'client_id'     => $result['client']->id,
+                'name'          => $result['client']->name,
+                'telegram_id'   => $result['client']->telegram_id,
+                'subscriptions' => $result['subscriptions'],
+            ],
+        ], 200);
     }
 }
