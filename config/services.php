@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'happ' => [
+        'provider_code' => env('HAPP_PROVIDER_CODE'),
+        'auth_key' => env('HAPP_AUTH_KEY'),
+    ],
+
 ];

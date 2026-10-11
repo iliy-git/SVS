@@ -177,8 +177,18 @@ class SubscriptionService
      */
     public function deleteSubscription(int $id): ?bool
     {
-        $subscription = $this->findById($id);
+        $subscription = Subscription::with(['configs.node'])->find($id);
 
+        if (!$subscription) {
+            return false;
+        }
+
+        // Удаляем клиентов с нод для уникальных конфигов шаблона
+        foreach ($subscription->configs as $config) {
+            if (!empty($config->email) && $config->inbound_id !== null) {
+                $this->nodeApi->deleteClientOnNode($config);
+            }
+        }
 
         return $subscription->delete();
     }
@@ -355,6 +365,9 @@ class SubscriptionService
 
             $subscription->loadMissing(['configs.node']);
             foreach ($subscription->configs as $config) {
+                if (!empty($config->email) && $config->inbound_id !== null) {
+                    $this->nodeApi->deleteClientOnNode($config);
+                }
                 $subscription->configs()->detach($config->id);
                 $config->delete();
             }
@@ -442,6 +455,9 @@ class SubscriptionService
 
         // Применяем удаление
         foreach ($configsToRemove as $c) {
+            if (!empty($c->email) && $c->inbound_id !== null) {
+                $this->nodeApi->deleteClientOnNode($c);
+            }
             $subscription->configs()->detach($c->id);
             $c->delete();
             $hasChanges = true;

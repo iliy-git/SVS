@@ -20,9 +20,9 @@ class NodeApiService
             if (!$c->is_active || !$c->node || !$c->email) {
                 return false;
             }
-            // Если конфиг создан только что (менее 15 сек назад в JIT-синхронизации),
-            // его данные уже свежие — пропускаем, чтобы сэкономить сетевое время
-            if ($c->created_at && $c->created_at->diffInSeconds(now()) < 15) {
+            // Если статистика конфига обновлялась менее 120 сек назад,
+            // данные свежие — пропускаем опрос ноды, чтобы отдать подписку мгновенно
+            if ($c->updated_at && $c->updated_at->diffInSeconds(now()) < 120) {
                 return false;
             }
             return true;
@@ -32,10 +32,52 @@ class NodeApiService
             return;
         }
 
+        $configsByNode = $activeConfigs->groupBy('node_id');
+        $fallbackConfigs = collect();
+
+        foreach ($configsByNode as $nodeId => $nodeConfigs) {
+            $node = $nodeConfigs->first()->node;
+            if (!$node) {
+                continue;
+            }
+
+            $nodeClients = $this->fetchNodeClients($node);
+
+            if ($nodeClients !== null) {
+                $clientsByEmail = collect($nodeClients)->keyBy('email');
+
+                foreach ($nodeConfigs as $config) {
+                    $clientData = $clientsByEmail->get($config->email);
+                    if ($clientData) {
+                        $updateData = [
+                            'up'            => $clientData['up'] ?? $config->up,
+                            'down'          => $clientData['down'] ?? $config->down,
+                            'traffic_limit' => isset($clientData['total']) && $clientData['total'] > 0
+                                ? ($clientData['total'] / (1024**3))
+                                : $config->traffic_limit,
+                            'expiry_time'   => $clientData['expiry_time'] ?? $config->expiry_time,
+                        ];
+
+                        if (!empty($clientData['link']) && !$config->is_modernized) {
+                            $updateData['link'] = $clientData['link'];
+                        }
+
+                        $config->update($updateData);
+                    }
+                }
+            } else {
+                $fallbackConfigs = $fallbackConfigs->merge($nodeConfigs);
+            }
+        }
+
+        if ($fallbackConfigs->isEmpty()) {
+            return;
+        }
+
         try {
-            // Параллельный опрос всех нод с жестким таймаутом 2.5 сек
-            $responses = Http::pool(function (Pool $pool) use ($activeConfigs) {
-                foreach ($activeConfigs as $config) {
+            // Фолбэк: параллельный опрос поштучно для нод без поддержки /clients
+            $responses = Http::pool(function (Pool $pool) use ($fallbackConfigs) {
+                foreach ($fallbackConfigs as $config) {
                     $pool->as((string)$config->id)
                         ->withHeaders([
                             'X-API-KEY' => $config->node->api_key
@@ -48,7 +90,7 @@ class NodeApiService
                 }
             });
 
-            foreach ($activeConfigs as $config) {
+            foreach ($fallbackConfigs as $config) {
                 $response = $responses[$config->id] ?? null;
                 
                 if ($response && $response instanceof \Illuminate\Http\Client\Response && $response->ok()) {
@@ -67,16 +109,36 @@ class NodeApiService
                         $updateData['link'] = $data['link'];
                     }
 
-                    // if (isset($data['is_active'])) {
-                    //     $updateData['is_active'] = (bool)$data['is_active'];
-                    // }
-
                     $config->update($updateData);
                 }
             }
         } catch (\Exception $e) {
-            Log::error("Failed in refreshAllConfigsStats: " . $e->getMessage());
+            Log::error("Failed in fallback refreshAllConfigsStats: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Получение всех клиентов с ноды за один запрос (GET /clients)
+     */
+    public function fetchNodeClients(Node $node): ?array
+    {
+        $baseUrl = "https://{$node->ip}:11223";
+        try {
+            $response = Http::withHeaders([
+                'X-API-KEY' => $node->api_key
+            ])
+                ->withoutVerifying()
+                ->timeout(5)
+                ->get("{$baseUrl}/clients");
+
+            if ($response->successful() && is_array($response->json())) {
+                return $response->json();
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Не удалось получить пакетный список клиентов с ноды {$baseUrl}: " . $e->getMessage());
+        }
+
+        return null;
     }
 
     /**
@@ -241,6 +303,45 @@ class NodeApiService
             Log::error("Ошибка POST /email/extend на ноде {$baseUrl} (Email: {$config->email}): " . $response->body());
         } catch (\Exception $e) {
             Log::error("Сбой ноды {$baseUrl} при продлении: " . $e->getMessage());
+        }
+
+        return false;
+    }
+
+    /**
+     * Удаление клиента на ноде (3x-ui)
+     */
+    public function deleteClientOnNode(\App\Models\Config $config): bool
+    {
+        if (!$config->node || empty($config->email)) {
+            return false;
+        }
+
+        $ip = $config->node->ip ?? 'localhost';
+        $baseUrl = "https://{$ip}:11223";
+        $apiKey = $config->node->api_key ?? '';
+
+        try {
+            $response = Http::withHeaders([
+                'X-API-KEY'    => $apiKey,
+                'Content-Type' => 'application/json',
+            ])
+                ->withoutVerifying()
+                ->timeout(3.5)
+                ->post("{$baseUrl}/client/delete", [
+                    'email'      => $config->email,
+                    'inbound_id' => (int)($config->inbound_id ?? 0),
+                ]);
+
+            if ($response->successful()) {
+                Log::info("Клиент {$config->email} успешно удален на ноде {$baseUrl}");
+                return true;
+            }
+
+            Log::warning("Ответ ноды {$baseUrl} при удалении клиента {$config->email}: " . $response->body());
+        } catch (\Exception $e) {
+            // Если эндпоинт на ноде еще не реализован или нода офлайн - не роняем удаление в панели, а логируем
+            Log::info("Запрос удаления клиента на ноде {$baseUrl} пропущен или недоступен: " . $e->getMessage());
         }
 
         return false;

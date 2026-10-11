@@ -16,20 +16,14 @@ class SubscriptionController extends Controller
     {
         $sub = Subscription::where('token', $token)->firstOrFail();
 
-        // 1. JIT Синхронизация и обновление статистики
+        // 1. JIT Синхронизация структуры шаблона (добавление/удаление серверов при смене шаблона)
         app(\App\Services\SubscriptionService::class)->syncWithTemplate($sub);
         
         $sub->load(['configs' => function($query) {
             $query->where('is_active', true);
         }, 'configs.flag', 'configs.node.flag']);
 
-        $nodeApi->refreshAllConfigsStats($sub->configs);
-
-        $sub->load(['configs' => function($query) {
-            $query->where('is_active', true);
-        }, 'configs.flag', 'configs.node.flag']);
-
-        // Обновляем дату окончания
+        // 2. Актуализация даты окончания в памяти/БД (без внешних сетевых вызовов)
         $this->syncExpiryDate($sub);
 
         // 2. СЦЕНАРИЙ А: Подписка истекла?
@@ -55,16 +49,31 @@ class SubscriptionController extends Controller
      */
     private function syncExpiryDate(Subscription $sub): void
     {
-        $validExpiries = $sub->configs->pluck('expiry_time')->filter(fn($time) => (int)$time > 0);
-
-        if ($validExpiries->isNotEmpty()) {
-            $minExpirySeconds = (int)($validExpiries->min() / 1000);
-            if (!$sub->expires_at || $sub->expires_at->timestamp !== $minExpirySeconds) {
-                $sub->update(['expires_at' => \Carbon\Carbon::createFromTimestamp($minExpirySeconds)]);
-            }
-        } else {
-            if ($sub->expires_at !== null) {
-                $sub->update(['expires_at' => null]);
+        // 1. Ручные подписки без шаблона НЕ ТРОГАЕМ: 
+        // их срок задан админом вручную и не должен ломаться из-за общих нод
+        if (empty($sub->template_id)) {
+            return;
+        }
+        // 2. Для шаблонных подписок берем ТОЛЬКО конфиги этого шаблона (inbound_id != null)
+        // и только с живых, активных нод
+        $templateConfigs = $sub->configs->filter(function ($c) {
+            return $c->inbound_id !== null
+                && $c->is_active 
+                && $c->node 
+                && $c->node->is_active 
+                && (int)$c->expiry_time > 0;
+        });
+        if ($templateConfigs->isEmpty()) {
+            return;
+        }
+        // 3. Берем минимальную дату среди живых нод шаблона (самый ранний срок среди персональных конфигов)
+        $minExpirySeconds = (int)($templateConfigs->pluck('expiry_time')->min() / 1000);
+        if ($minExpirySeconds > 0) {
+            // Обновляем, только если расхождение больше минуты (защита от лишних запросов в БД)
+            if (!$sub->expires_at || abs($sub->expires_at->timestamp - $minExpirySeconds) > 60) {
+                $sub->update([
+                    'expires_at' => \Carbon\Carbon::createFromTimestamp($minExpirySeconds)
+                ]);
             }
         }
     }

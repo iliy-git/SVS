@@ -16,8 +16,8 @@ class HappApiService
         $token = $sub->token;
         $limit = $sub->install_limit ?? 1;
 
-        $providerCode = env('HAPP_PROVIDER_CODE');
-        $authKey = env('HAPP_AUTH_KEY');
+        $providerCode = config('services.happ.provider_code') ?: env('HAPP_PROVIDER_CODE');
+        $authKey      = config('services.happ.auth_key') ?: env('HAPP_AUTH_KEY');
 
         // Базовая ссылка
         $url = route('subscription.raw', ['token' => $token]);
