@@ -242,8 +242,11 @@ class XrayProfileBuilder
         $outbounds[] = ["protocol" => "freedom", "settings" => ["domainStrategy" => "UseIP"], "tag" => "direct"];
         $outbounds[] = ["protocol" => "blackhole", "settings" => ["response" => ["type" => "http"]], "tag" => "block"];
 
-        $domainsPath = storage_path('app/domains.txt');
-        if (file_exists($domainsPath)) {
+        $domainsPath = file_exists(storage_path('app/domains.txt'))
+            ? storage_path('app/domains.txt')
+            : (file_exists(resource_path('data/domains.txt')) ? resource_path('data/domains.txt') : null);
+
+        if ($domainsPath) {
             $directDomains = file($domainsPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
         } else {
             $directDomains = ["regexp:.*\\.ru$", "regexp:.*\\.su$", "domain:xn--b1aew.xn--p1ai"];

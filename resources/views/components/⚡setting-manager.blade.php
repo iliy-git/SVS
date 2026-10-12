@@ -11,11 +11,72 @@ new class extends Component {
     public $email;
     public $password;
 
+    // Прямой доступ (Direct Domains)
+    public $domainsContent = '';
+    public $domainsCount = 0;
+
     public function mount(SettingService $service)
     {
         $this->admin_path = $service->getAdminPath();
         $this->admin_port = env('ADMIN_PORT', 8001);
         $this->email = auth()->user()->email;
+
+        $this->loadDomains();
+    }
+
+    public function loadDomains()
+    {
+        $filePath = file_exists(storage_path('app/domains.txt'))
+            ? storage_path('app/domains.txt')
+            : (file_exists(resource_path('data/domains.txt')) ? resource_path('data/domains.txt') : null);
+
+        if ($filePath && file_exists($filePath)) {
+            $this->domainsContent = file_get_contents($filePath);
+        } else {
+            $this->domainsContent = "regexp:.*\\.ru$\nregexp:.*\\.su$\ndomain:xn--b1aew.xn--p1ai";
+        }
+
+        $this->updateDomainsCount();
+    }
+
+    private function updateDomainsCount()
+    {
+        $lines = array_filter(
+            array_map('trim', explode("\n", str_replace("\r", "", $this->domainsContent))),
+            fn($line) => !empty($line) && !str_starts_with($line, '#')
+        );
+        $this->domainsCount = count($lines);
+    }
+
+    public function saveDomains()
+    {
+        $lines = array_filter(
+            array_map('trim', explode("\n", str_replace("\r", "", $this->domainsContent))),
+            fn($line) => !empty($line)
+        );
+        $content = implode("\n", $lines) . "\n";
+
+        // Сохраняем в storage/app/domains.txt (игнорируется git, не перезаписывается при pull)
+        $storagePath = storage_path('app/domains.txt');
+        if (!is_dir(dirname($storagePath))) {
+            mkdir(dirname($storagePath), 0755, true);
+        }
+        file_put_contents($storagePath, $content);
+
+        $this->domainsContent = $content;
+        $this->updateDomainsCount();
+
+        session()->flash('domains_success', "Правила маршрутизации сохранены! Всего активных правил: {$this->domainsCount}");
+    }
+
+    public function resetDomainsToDefault()
+    {
+        $defaultPath = resource_path('data/domains.txt');
+        if (file_exists($defaultPath)) {
+            $this->domainsContent = file_get_contents($defaultPath);
+            $this->saveDomains();
+            session()->flash('domains_success', 'Список доменов восстановлен из репозитория!');
+        }
     }
 
     public function getHostProperty()
@@ -142,7 +203,6 @@ new class extends Component {
                 </div>
             </div>
         </div>
-
         <div class="col-12 mt-4">
             <div class="setting-card p-4">
                 <div class="row align-items-center g-3">
@@ -164,6 +224,90 @@ new class extends Component {
                             <i class="bi bi-save2 me-2"></i> СОХРАНИТЬ И ПРИМЕНИТЬ
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        {{-- Direct Domains Code Editor Card --}}
+        <div class="col-12 mt-4">
+            <div class="setting-card p-4 shadow-sm" style="border: 1px solid rgba(255, 255, 255, 0.08);">
+                <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+                    <div class="d-flex align-items-center">
+                        <div class="p-2 rounded-3 me-3 text-warning" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2);">
+                            <i class="bi bi-signpost-split-fill fs-5"></i>
+                        </div>
+                        <div>
+                            <h5 class="m-0 text-white fw-bold">Исключения и прямой доступ (Direct Routing)</h5>
+                            <p class="text-muted small mb-0">Трафик на указанные домены идет напрямую в обход Xray (RU-ресурсы, банки, Госуслуги)</p>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge px-3 py-2 rounded-pill font-monospace" style="background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.2);">
+                            <i class="bi bi-file-earmark-code me-1"></i> domains.txt
+                        </span>
+                        <span class="badge px-3 py-2 rounded-pill font-monospace" style="background: rgba(245, 158, 11, 0.1); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.2);">
+                            <i class="bi bi-list-check me-1"></i> {{ $domainsCount }} правил
+                        </span>
+                    </div>
+                </div>
+
+                @if(session('domains_success'))
+                    <div class="alert alert-success bg-success bg-opacity-10 text-success border-0 mb-3 py-2 px-3 small rounded-3 d-flex align-items-center">
+                        <i class="bi bi-check-circle-fill me-2 fs-6"></i>
+                        <span>{{ session('domains_success') }}</span>
+                    </div>
+                @endif
+
+                {{-- IDE Editor Window --}}
+                <div class="rounded-3 overflow-hidden shadow" style="border: 1px solid rgba(255, 255, 255, 0.1); background: #0a0e14;">
+                    {{-- IDE Title Bar --}}
+                    <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background: #11161d; border-bottom: 1px solid rgba(255, 255, 255, 0.06);">
+                        <div class="d-flex align-items-center gap-2">
+                            <span style="width: 10px; height: 10px; border-radius: 50%; background: #ff5f56; display: inline-block;"></span>
+                            <span style="width: 10px; height: 10px; border-radius: 50%; background: #ffbd2e; display: inline-block;"></span>
+                            <span style="width: 10px; height: 10px; border-radius: 50%; background: #27c93f; display: inline-block;"></span>
+                            <span class="ms-2 small text-muted font-monospace" style="font-size: 11px;">
+                                storage/app/domains.txt
+                            </span>
+                        </div>
+                        <div class="small text-muted font-monospace" style="font-size: 11px;">
+                            <span class="text-success">●</span> Live Sync
+                        </div>
+                    </div>
+
+                    {{-- Code Area --}}
+                    <div class="p-2">
+                        <textarea 
+                            wire:model="domainsContent" 
+                            class="form-control border-0 shadow-none font-monospace p-3" 
+                            style="background-color: transparent !important; color: #a5f3fc !important; font-size: 13px; line-height: 1.6; height: 350px; resize: vertical; tab-size: 4;"
+                            placeholder="regexp:.*\.ru$&#10;domain:yandex.ru"
+                            spellcheck="false"
+                        ></textarea>
+                    </div>
+
+                    {{-- IDE Footer Status Bar --}}
+                    <div class="d-flex justify-content-between align-items-center px-3 py-2 small text-muted" style="background: #11161d; border-top: 1px solid rgba(255, 255, 255, 0.06); font-size: 12px;">
+                        <div>
+                            <span class="text-secondary">Синтаксис:</span>
+                            <code class="px-1 rounded" style="background: rgba(255,255,255,0.06); color: #7dd3fc;">regexp:.*\.ru$</code>
+                            <code class="px-1 rounded ms-1" style="background: rgba(255,255,255,0.06); color: #7dd3fc;">domain:yandex.ru</code>
+                            <code class="px-1 rounded ms-1" style="background: rgba(255,255,255,0.06); color: #7dd3fc;">full:vk.com</code>
+                        </div>
+                        <div>
+                            <span class="text-secondary">Кодировка:</span> UTF-8
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Action Buttons --}}
+                <div class="d-flex justify-content-between align-items-center mt-3 pt-2 flex-wrap gap-2">
+                    <button type="button" wire:click="resetDomainsToDefault" wire:confirm="Восстановить исходный список правил из репозитория?" class="btn btn-sm btn-outline-secondary px-3 py-2 rounded-3 text-light" style="border-color: rgba(255,255,255,0.15);">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i> Восстановить из репозитория
+                    </button>
+                    <button type="button" wire:click="saveDomains" class="btn btn-primary px-4 py-2 fw-bold rounded-3 shadow-sm" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); border: none;">
+                        <i class="bi bi-check2-circle me-1"></i> СОХРАНИТЬ ПРАВИЛА
+                    </button>
                 </div>
             </div>
         </div>
