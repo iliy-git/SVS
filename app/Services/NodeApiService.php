@@ -210,18 +210,25 @@ class NodeApiService
     }
 
     /**
-     * Модернизация VLESS/xHTTP ссылки под TLS + CDN
+     * Модернизация VLESS/xHTTP ссылки под TLS + CDN / Кастомную редакцию
      */
-    public function modernizeLink(string $uri, bool $isTls, bool &$isModernized): string
+    public function modernizeLink(string $uri, bool $isTls, bool &$isModernized, ?array $overrides = null): string
     {
         $isModernized = false;
 
-        if (!$isTls || empty($uri)) {
+        $hasOverrides = !empty($overrides) && (
+            !empty($overrides['enabled']) ||
+            !empty($overrides['host']) ||
+            !empty($overrides['port']) ||
+            !empty($overrides['params'])
+        );
+
+        if ((!$isTls && !$hasOverrides) || empty($uri)) {
             return $uri;
         }
 
         $parsed = parse_url($uri);
-        if (!$parsed || !isset($parsed['scheme']) || $parsed['scheme'] !== 'vless') {
+        if (!$parsed || !isset($parsed['scheme'])) {
             return $uri;
         }
 
@@ -230,51 +237,96 @@ class NodeApiService
             parse_str($parsed['query'], $query);
         }
 
-        $cdnHost    = 'pt0pegkjoi.cdn.twcstorage.ru';
-        $headerHost = 'cdn.komap.pw';
+        // Переопределение хоста подключения (например, CDN Edge или Cloudflare IP/домен)
+        if (!empty($overrides['host'])) {
+            $parsed['host'] = $overrides['host'];
+        }
 
-        $parsed['host'] = $cdnHost;
-        $parsed['port'] = 443;
+        // Переопределение порта
+        if (!empty($overrides['port'])) {
+            $parsed['port'] = (int)$overrides['port'];
+        }
 
-        $query['type']     = 'xhttp';
-        $query['security'] = 'tls';
-        $query['sni']      = $cdnHost;
-        $query['fp']       = 'randomized';
-        $query['alpn']     = 'h3,h2,http/1.1';
-        $query['host']     = $headerHost;
-        $query['path']     = '/assets/vendor.js';
-        $query['mode']     = 'packet-up';
+        // Переопределение любых произвольных query-параметров из массива params
+        if (!empty($overrides['params']) && is_array($overrides['params'])) {
+            foreach ($overrides['params'] as $key => $val) {
+                if ($val === null || $val === '') {
+                    unset($query[$key]);
+                } else {
+                    $query[$key] = is_array($val) ? json_encode($val, JSON_UNESCAPED_SLASHES) : $val;
+                }
+            }
+        }
 
-        $extraData = [
-            'noGRPCHeader'       => true,
-            'seqKey'             => '_seq',
-            'seqPlacement'       => 'query',
-            'sessionIDKey'       => '_sid',
-            'sessionIDPlacement' => 'query',
-            'sessionKey'         => '_sid',
-            'sessionPlacement'   => 'query',
-            'uplinkHTTPMethod'   => 'POST',
-            'xPaddingBytes'      => '100-300',
-            'xPaddingKey'        => '_dc',
-            'xPaddingMethod'     => 'tokenish',
-            'xPaddingObfsMode'   => true,
-            'xPaddingPlacement'  => 'query',
-        ];
+        // Поддержка стандартных плоских ключей
+        foreach (['sni', 'path', 'type', 'security', 'fp', 'alpn', 'mode', 'extra'] as $stdKey) {
+            if (isset($overrides[$stdKey]) && !isset($overrides['params'][$stdKey])) {
+                $val = $overrides[$stdKey];
+                $query[$stdKey] = is_array($val) ? json_encode($val, JSON_UNESCAPED_SLASHES) : $val;
+            }
+        }
+        if (isset($overrides['header_host']) && !isset($overrides['params']['host'])) {
+            $query['host'] = $overrides['header_host'];
+        }
 
-        $query['extra'] = json_encode($extraData, JSON_UNESCAPED_SLASHES);
+        // Если тип xhttp, обеспечиваем совместимость с CDN проксированием, если пользователь не переопределил их
+        if (($query['type'] ?? '') === 'xhttp') {
+            if (!isset($query['alpn']) && !isset($overrides['params']['alpn'])) {
+                $query['alpn'] = $overrides['alpn'] ?? 'h3,h2,http/1.1';
+            }
+            if (!isset($query['fp']) && !isset($overrides['params']['fp'])) {
+                $query['fp'] = $overrides['fp'] ?? 'randomized';
+            }
+            if (!isset($query['extra']) && !isset($overrides['params']['extra'])) {
+                $query['extra'] = json_encode([
+                    'noGRPCHeader'       => true,
+                    'seqKey'             => '_seq',
+                    'seqPlacement'       => 'query',
+                    'sessionIDKey'       => '_sid',
+                    'sessionIDPlacement' => 'query',
+                    'sessionKey'         => '_sid',
+                    'sessionPlacement'   => 'query',
+                    'uplinkHTTPMethod'   => 'POST',
+                    'xPaddingBytes'      => '100-300',
+                    'xPaddingKey'        => '_dc',
+                    'xPaddingMethod'     => 'tokenish',
+                    'xPaddingObfsMode'   => true,
+                    'xPaddingPlacement'  => 'query',
+                ], JSON_UNESCAPED_SLASHES);
+            }
+        }
 
-        unset($query['spx'], $query['encryption']);
+        // Признак TLS для VLESS
+        if ($isTls && !isset($query['security']) && ($parsed['scheme'] ?? '') === 'vless') {
+            $query['security'] = 'tls';
+        }
+
+        if (($parsed['scheme'] ?? '') === 'vless') {
+            unset($query['spx'], $query['encryption']);
+        }
 
         $isModernized = true;
 
-        $user     = isset($parsed['user']) ? $parsed['user'] . '@' : '';
-        $host     = $parsed['host'];
-        $port     = ':' . $parsed['port'];
-        $path     = $parsed['path'] ?? '';
-        $fragment = isset($parsed['fragment']) ? '#' . $parsed['fragment'] : '#Modernized-Proxy';
-        $queryString = '?' . http_build_query($query);
+        $user        = isset($parsed['user']) ? $parsed['user'] . '@' : '';
+        $host        = $parsed['host'] ?? '';
+        $portStr     = isset($parsed['port']) ? ':' . $parsed['port'] : '';
+        $urlPath     = $parsed['path'] ?? '';
+        $fragment    = isset($parsed['fragment']) ? '#' . $parsed['fragment'] : '';
 
-        return "vless://{$user}{$host}{$port}{$path}{$queryString}{$fragment}";
+        // Актуализируем имя во фрагменте (для клиентов v2rayNG, Sing-box и т.д.), если задан суффикс
+        if (!empty($overrides['suffix'])) {
+            $suffix = trim((string)$overrides['suffix']);
+            $currentFrag = isset($parsed['fragment']) ? rawurldecode($parsed['fragment']) : '';
+            if ($currentFrag !== '' && !str_contains($currentFrag, $suffix)) {
+                $fragment = '#' . rawurlencode($currentFrag . ' ' . $suffix);
+            } elseif ($currentFrag === '') {
+                $fragment = '#' . rawurlencode($suffix);
+            }
+        }
+
+        $queryString = !empty($query) ? '?' . http_build_query($query) : '';
+
+        return "{$parsed['scheme']}://{$user}{$host}{$portStr}{$urlPath}{$queryString}{$fragment}";
     }
     /**
      * Продление клиента на ноде (3x-ui)

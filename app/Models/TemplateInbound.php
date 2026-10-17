@@ -7,8 +7,20 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class TemplateInbound extends Model
 {
-    protected $fillable = ['template_id', 'node_id', 'inbound_id', 'priority', 'traffic_limit_gb',
-        'is_tls',];
+    protected $fillable = [
+        'template_id',
+        'node_id',
+        'inbound_id',
+        'priority',
+        'traffic_limit_gb',
+        'is_tls',
+        'link_overrides',
+    ];
+
+    protected $casts = [
+        'is_tls'         => 'boolean',
+        'link_overrides' => 'array',
+    ];
 
     public function template(): BelongsTo
     {

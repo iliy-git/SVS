@@ -22,8 +22,16 @@ class Config extends Model
         'is_main',
         'is_active',
         'is_modernized',
+        'link_overrides',
         'inbound_id',
         'priority',
+    ];
+
+    protected $casts = [
+        'is_main'        => 'boolean',
+        'is_active'      => 'boolean',
+        'is_modernized'  => 'boolean',
+        'link_overrides' => 'array',
     ];
 
     public function subscriptions(): BelongsToMany

@@ -259,14 +259,54 @@ class SubscriptionService
         return false;
     }
     /**
+     * Проверяет наличие активной редакции ссылки у инбаунда (поддерживает как новый формат с params, так и legacy плоский).
+     */
+    public function hasLinkOverrides($templateInbound): bool
+    {
+        $ov = $templateInbound->link_overrides ?? null;
+        if (empty($ov) || !is_array($ov)) {
+            return false;
+        }
+
+        return !empty($ov['enabled']) ||
+            !empty($ov['host']) ||
+            !empty($ov['port']) ||
+            !empty($ov['params']) ||
+            !empty($ov['sni']) ||
+            !empty($ov['header_host']);
+    }
+
+    /**
+     * Определяет флаг is_main для конфига по инбаунду шаблона.
+     */
+    public function resolveIsMain($templateInbound): bool
+    {
+        return !empty($templateInbound->is_tls) ||
+            !empty($templateInbound->is_main) ||
+            $this->hasLinkOverrides($templateInbound);
+    }
+
+    /**
      * Формирует читаемое название конфигурации.
      */
     protected function resolveConfigName($node, $templateInbound): string
     {
         $baseName = $node->name ?? ('Node ' . $node->id);
-        $isBypass = !empty($templateInbound->is_main) || !empty($templateInbound->is_tls);
+        $hasOverrides = $this->hasLinkOverrides($templateInbound);
+        $isBypass = !empty($templateInbound->is_main) || !empty($templateInbound->is_tls) || $hasOverrides;
 
-        return $isBypass ? "{$baseName} (Обход БС)" : $baseName;
+        $suffix = $templateInbound->link_overrides['suffix'] ?? ($isBypass ? '(Обход БС)' : '');
+        $suffix = trim((string)$suffix);
+
+        if ($suffix === '') {
+            return $baseName;
+        }
+
+        if (str_contains($baseName, $suffix)) {
+            return $baseName;
+        }
+
+        return "{$baseName} {$suffix}";
     }
 
     /**
@@ -306,7 +346,7 @@ class SubscriptionService
 
                 $randomEmail = 'usr_' . Str::lower(Str::random(10)) . '@generated.local';
                 $configName  = $this->resolveConfigName($node, $templateInbound);
-                $isMain      = !empty($templateInbound->is_tls) || !empty($templateInbound->is_main);
+                $isMain      = $this->resolveIsMain($templateInbound);
 
                 $nodeResult = $this->nodeApi->createClientOnNode($node, [
                         'inbound_id' => $templateInbound->inbound_id,
@@ -317,20 +357,26 @@ class SubscriptionService
 
                 $rawLink      = $nodeResult['link'] ?? '';
                 $isModernized = false;
-                $finalLink = $this->nodeApi->modernizeLink($rawLink, (bool)($templateInbound->is_tls ?? false), $isModernized);
+                $finalLink = $this->nodeApi->modernizeLink(
+                    $rawLink,
+                    (bool)($templateInbound->is_tls ?? false),
+                    $isModernized,
+                    $templateInbound->link_overrides
+                );
 
                 $config = $subscription->configs()->create([
-                    'node_id'       => $node->id,
-                    'inbound_id'    => $templateInbound->inbound_id,
-                    'name'          => $configName,
-                    'email'         => $randomEmail,
-                    'link'          => $finalLink,
-                    'is_main'       => $isMain,
-                    'is_modernized' => $isModernized,
-                    'priority'      => $templateInbound->priority ?? 0,
-                    'traffic_limit' => $templateInbound->traffic_limit_gb ?? 0,
-                    'is_active'     => true,
-                    'flag_id'       => $node->flag->id ?? null,
+                    'node_id'        => $node->id,
+                    'inbound_id'     => $templateInbound->inbound_id,
+                    'name'           => $configName,
+                    'email'          => $randomEmail,
+                    'link'           => $finalLink,
+                    'is_main'        => $isMain,
+                    'is_modernized'  => $isModernized,
+                    'link_overrides' => $templateInbound->link_overrides,
+                    'priority'       => $templateInbound->priority ?? 0,
+                    'traffic_limit'  => $templateInbound->traffic_limit_gb ?? 0,
+                    'is_active'      => true,
+                    'flag_id'        => $node->flag->id ?? null,
                 ]);
 
                 $subscription->configs()->syncWithoutDetaching([$config->id]);
@@ -425,22 +471,24 @@ class SubscriptionService
             });
 
             if ($matchingConfig) {
+                $hasOverrides        = $this->hasLinkOverrides($ti);
                 $expectedName        = $this->resolveConfigName($ti->node, $ti);
-                $expectedIsMain      = !empty($ti->is_tls) || !empty($ti->is_main);
+                $expectedIsMain      = $this->resolveIsMain($ti);
 
-                $needsNameUpdate     = $matchingConfig->name !== $expectedName;
-                $needsMainUpdate     = (bool)$matchingConfig->is_main !== $expectedIsMain;
-                $needsTlsUpdate      = (bool)$matchingConfig->is_modernized !== (bool)$ti->is_tls;
-                $needsLimitUpdate    = (int)($matchingConfig->traffic_limit ?? 0) !== (int)($ti->traffic_limit_gb ?? 0);
-                $needsPriorityUpdate = (int)($matchingConfig->priority ?? 0) !== (int)($ti->priority ?? 0);
+                $needsNameUpdate      = $matchingConfig->name !== $expectedName;
+                $needsMainUpdate      = (bool)$matchingConfig->is_main !== $expectedIsMain;
+                $needsTlsUpdate       = (bool)$matchingConfig->is_modernized !== ((bool)$ti->is_tls || $hasOverrides);
+                $needsOverridesUpdate = ($matchingConfig->link_overrides != $ti->link_overrides);
+                $needsLimitUpdate     = (int)($matchingConfig->traffic_limit ?? 0) !== (int)($ti->traffic_limit_gb ?? 0);
+                $needsPriorityUpdate  = (int)($matchingConfig->priority ?? 0) !== (int)($ti->priority ?? 0);
 
-                if ($needsNameUpdate || $needsMainUpdate || $needsTlsUpdate || $needsLimitUpdate || $needsPriorityUpdate) {
+                if ($needsNameUpdate || $needsMainUpdate || $needsTlsUpdate || $needsOverridesUpdate || $needsLimitUpdate || $needsPriorityUpdate) {
                     $configsToUpdate[] = [
-                        'config'        => $matchingConfig,
-                        'inbound'       => $ti,
-                        'expected_name' => $expectedName,
-                        'expected_main' => $expectedIsMain,
-                        'needs_tls'     => $needsTlsUpdate,
+                        'config'          => $matchingConfig,
+                        'inbound'         => $ti,
+                        'expected_name'   => $expectedName,
+                        'expected_main'   => $expectedIsMain,
+                        'needs_link_sync' => ($needsTlsUpdate || $needsOverridesUpdate),
                     ];
                 }
             }
@@ -477,7 +525,7 @@ class SubscriptionService
                 'traffic_limit' => $inbound->traffic_limit_gb ?? 0,
             ];
 
-            if ($item['needs_tls']) {
+            if ($item['needs_link_sync']) {
                 $rawLink = '';
                 if ($config->node && !empty($config->email)) {
                     $baseUrl  = "https://{$config->node->ip}:11223";
@@ -491,8 +539,14 @@ class SubscriptionService
                 }
 
                 $isModernized = false;
-                $updateData['link'] = $this->nodeApi->modernizeLink($rawLink, (bool)$inbound->is_tls, $isModernized);
-                $updateData['is_modernized'] = $isModernized;
+                $updateData['link'] = $this->nodeApi->modernizeLink(
+                    $rawLink,
+                    (bool)$inbound->is_tls,
+                    $isModernized,
+                    $inbound->link_overrides
+                );
+                $updateData['is_modernized']  = $isModernized;
+                $updateData['link_overrides'] = $inbound->link_overrides;
             }
 
             $config->update($updateData);
@@ -509,13 +563,18 @@ class SubscriptionService
             try {
                 $randomEmail = 'usr_' . Str::lower(Str::random(10)) . '@generated.local';
                 $configName  = $this->resolveConfigName($node, $templateInbound);
-                $isMain      = !empty($templateInbound->is_tls) || !empty($templateInbound->is_main);
+                $isMain      = $this->resolveIsMain($templateInbound);
+
+                $days = 30;
+                if ($subscription->expires_at) {
+                    $days = max(1, (int)now()->diffInDays($subscription->expires_at, false));
+                }
 
                 $nodeResult = $this->nodeApi->createClientOnNode($node, [
                     'inbound_id' => $templateInbound->inbound_id,
                     'email'      => $randomEmail,
                     'totalGB'    => (int)($templateInbound->traffic_limit_gb ?? 0),
-                    'days'       => 30,
+                    'days'       => $days,
                 ]);
 
                 $rawLink = $nodeResult['link'] ?? '';
@@ -526,20 +585,26 @@ class SubscriptionService
 
                 $isModernized = false;
 
-                $finalLink    = $this->nodeApi->modernizeLink($rawLink, (bool)($templateInbound->is_tls ?? false), $isModernized);
+                $finalLink    = $this->nodeApi->modernizeLink(
+                    $rawLink,
+                    (bool)($templateInbound->is_tls ?? false),
+                    $isModernized,
+                    $templateInbound->link_overrides
+                );
 
                 $config = $subscription->configs()->create([
-                    'node_id'       => $node->id,
-                    'inbound_id'    => $templateInbound->inbound_id,
-                    'name'          => $configName,
-                    'email'         => $randomEmail,
-                    'link'          => $finalLink,
-                    'is_main'       => $isMain,
-                    'is_modernized' => $isModernized,
-                    'priority'      => $templateInbound->priority ?? 0,
-                    'traffic_limit' => $templateInbound->traffic_limit_gb ?? 0,
-                    'is_active'     => true,
-                    'flag_id'       => $node->flag->id ?? null,
+                    'node_id'        => $node->id,
+                    'inbound_id'     => $templateInbound->inbound_id,
+                    'name'           => $configName,
+                    'email'          => $randomEmail,
+                    'link'           => $finalLink,
+                    'is_main'        => $isMain,
+                    'is_modernized'  => $isModernized,
+                    'link_overrides' => $templateInbound->link_overrides,
+                    'priority'       => $templateInbound->priority ?? 0,
+                    'traffic_limit'  => $templateInbound->traffic_limit_gb ?? 0,
+                    'is_active'      => true,
+                    'flag_id'        => $node->flag->id ?? null,
                 ]);
 
                 $subscription->configs()->syncWithoutDetaching([$config->id]);

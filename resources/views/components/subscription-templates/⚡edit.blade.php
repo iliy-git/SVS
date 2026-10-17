@@ -16,38 +16,42 @@ new class extends Component
     public string $description = '';
     public bool $is_active = true;
 
-    // Список привязанных элементов
+    // Список привязанных инбаундов
     public array $selectedInbounds = [];
 
-    // Буферные поля
+    // Буферные поля добавления инбаунда
     public ?int $selectedNodeId = null;
     public ?int $selectedInboundId = null;
     public int $newTrafficLimitGb = 0;
     public bool $newIsTls = false;
+
+    // Редактирование произвольной редакции ссылки для строки таблицы
+    public ?int $editingOverrideIndex = null;
+    public array $editingOverrides = [];
 
     public array $availableInbounds = [];
 
     public function mount(int $templateId): void
     {
         $this->templateId = $templateId;
-        $template = SubscriptionTemplate::with('inbounds.node')->findOrFail($templateId);
+        $template = SubscriptionTemplate::with('inbounds.node.flag')->findOrFail($templateId);
 
         $this->name = $template->name;
         $this->slug = $template->slug;
         $this->description = $template->description ?? '';
         $this->is_active = (bool)$template->is_active;
 
-        // Предзагрузка существующих связей с трафиком и TLS
         foreach ($template->inbounds as $inboundRelation) {
-            $node = \App\Models\Node::with('flag')->find($inboundRelation->node_id);
+            $node = $inboundRelation->node;
             $this->selectedInbounds[] = [
                 'node_id'          => $inboundRelation->node_id,
-                'node_name'        => $inboundRelation->node->name ?? 'Node #' . $inboundRelation->node_id,
+                'node_name'        => $node->name ?? 'Node #' . $inboundRelation->node_id,
                 'flag_code'        => ($node && $node->flag) ? strtoupper($node->flag->code) : null,
                 'inbound_id'       => $inboundRelation->inbound_id,
                 'title'            => 'Inbound #' . $inboundRelation->inbound_id,
                 'traffic_limit_gb' => $inboundRelation->traffic_limit_gb ?? 0,
                 'is_tls'           => (bool)($inboundRelation->is_tls ?? false),
+                'link_overrides'   => $inboundRelation->link_overrides ?? null,
                 'priority'         => $inboundRelation->priority ?? 0,
             ];
         }
@@ -92,7 +96,6 @@ new class extends Component
         }
 
         $node = Node::with('flag')->find($this->selectedNodeId);
-
         $inboundData = collect($this->availableInbounds)->firstWhere('id', (int)$this->selectedInboundId);
         $title = !empty($inboundData['remark']) ? $inboundData['remark'] : ($inboundData['tag'] ?? 'inbound-' . $this->selectedInboundId);
 
@@ -104,15 +107,150 @@ new class extends Component
             'title'            => $title,
             'traffic_limit_gb' => $this->newTrafficLimitGb,
             'is_tls'           => $this->newIsTls,
+            'link_overrides'   => null,
             'priority'         => count($this->selectedInbounds) * 10,
         ];
 
-        // Сброс буферных полей
         $this->selectedNodeId = null;
         $this->selectedInboundId = null;
         $this->newTrafficLimitGb = 0;
         $this->newIsTls = false;
         $this->availableInbounds = [];
+    }
+
+    public function openOverrideModal(int $index): void
+    {
+        $this->editingOverrideIndex = $index;
+        $ov = $this->selectedInbounds[$index]['link_overrides'] ?? [];
+
+        $paramsList = [];
+        $existingKeys = [];
+
+        if (!empty($ov['params']) && is_array($ov['params'])) {
+            foreach ($ov['params'] as $k => $v) {
+                $paramsList[] = [
+                    'uid'   => (string)Str::uuid(),
+                    'key'   => (string)$k,
+                    'value' => is_array($v) ? json_encode($v) : (string)$v,
+                ];
+                $existingKeys[strtolower((string)$k)] = true;
+            }
+        }
+
+        // Обратная совместимость с существующим плоским форматом записей в БД
+        if (isset($ov['header_host']) && !isset($existingKeys['host'])) {
+            $paramsList[] = [
+                'uid'   => (string)Str::uuid(),
+                'key'   => 'host',
+                'value' => (string)$ov['header_host'],
+            ];
+            $existingKeys['host'] = true;
+        }
+
+        foreach (['sni', 'path', 'type', 'security', 'fp', 'alpn', 'mode', 'extra'] as $stdKey) {
+            if (isset($ov[$stdKey]) && !isset($existingKeys[$stdKey])) {
+                $val = $ov[$stdKey];
+                $paramsList[] = [
+                    'uid'   => (string)Str::uuid(),
+                    'key'   => $stdKey,
+                    'value' => is_array($val) ? json_encode($val) : (string)$val,
+                ];
+                $existingKeys[$stdKey] = true;
+            }
+        }
+
+        foreach ($ov as $k => $v) {
+            $kStr = (string)$k;
+            if (!in_array($kStr, ['enabled', 'host', 'port', 'suffix', 'params', 'header_host', 'sni', 'path', 'type', 'security', 'fp', 'alpn', 'mode', 'extra']) && !isset($existingKeys[strtolower($kStr)])) {
+                $paramsList[] = [
+                    'uid'   => (string)Str::uuid(),
+                    'key'   => $kStr,
+                    'value' => is_array($v) ? json_encode($v) : (string)$v,
+                ];
+                $existingKeys[strtolower($kStr)] = true;
+            }
+        }
+
+        $this->editingOverrides = [
+            'enabled' => !empty($ov['enabled']) || (!empty($ov) && !isset($ov['enabled'])),
+            'host'    => $ov['host'] ?? '',
+            'port'    => $ov['port'] ?? '',
+            'suffix'  => $ov['suffix'] ?? '',
+            'params'  => $paramsList,
+        ];
+    }
+
+    public function addOverrideParam(string $key = '', string $value = ''): void
+    {
+        // Не дублируем ключи, если такой уже добавлен
+        if ($key !== '') {
+            foreach ($this->editingOverrides['params'] as $idx => $p) {
+                if (strtolower($p['key']) === strtolower($key)) {
+                    if ($value !== '' && empty($this->editingOverrides['params'][$idx]['value'])) {
+                        $this->editingOverrides['params'][$idx]['value'] = $value;
+                    }
+                    return;
+                }
+            }
+        }
+
+        $this->editingOverrides['params'][] = [
+            'uid'   => (string)Str::uuid(),
+            'key'   => $key,
+            'value' => $value,
+        ];
+    }
+
+    public function removeOverrideParam(int $pIndex): void
+    {
+        unset($this->editingOverrides['params'][$pIndex]);
+        $this->editingOverrides['params'] = array_values($this->editingOverrides['params']);
+    }
+
+    public function saveOverrides(): void
+    {
+        if ($this->editingOverrideIndex === null || !isset($this->selectedInbounds[$this->editingOverrideIndex])) {
+            return;
+        }
+
+        $host   = trim($this->editingOverrides['host'] ?? '');
+        $port   = trim((string)($this->editingOverrides['port'] ?? ''));
+        $suffix = trim($this->editingOverrides['suffix'] ?? '');
+
+        $portInt = null;
+        if ($port !== '' && is_numeric($port)) {
+            $portInt = max(1, min(65535, (int)$port));
+        }
+
+        $params = [];
+        foreach ($this->editingOverrides['params'] ?? [] as $p) {
+            $k = trim($p['key'] ?? '');
+            if ($k !== '') {
+                $params[$k] = $p['value'] ?? '';
+            }
+        }
+
+        $hasData = ($host !== '' || $portInt !== null || $suffix !== '' || !empty($params));
+
+        if (!empty($this->editingOverrides['enabled']) && $hasData) {
+            $this->selectedInbounds[$this->editingOverrideIndex]['link_overrides'] = [
+                'enabled' => true,
+                'host'    => $host,
+                'port'    => $portInt,
+                'suffix'  => $suffix,
+                'params'  => $params,
+            ];
+            $this->selectedInbounds[$this->editingOverrideIndex]['is_tls'] = true;
+        } else {
+            $this->selectedInbounds[$this->editingOverrideIndex]['link_overrides'] = null;
+        }
+
+        $this->editingOverrideIndex = null;
+    }
+
+    public function closeOverrideModal(): void
+    {
+        $this->editingOverrideIndex = null;
     }
 
     public function removeInbound(int $index): void
@@ -149,7 +287,6 @@ new class extends Component
             'is_active'   => $this->is_active,
         ]);
 
-        // Синхронизируем инбаунды
         $template->inbounds()->delete();
 
         foreach ($this->selectedInbounds as $item) {
@@ -159,6 +296,7 @@ new class extends Component
                 'inbound_id'       => $item['inbound_id'],
                 'traffic_limit_gb' => $item['traffic_limit_gb'] ?? 0,
                 'is_tls'           => (bool)($item['is_tls'] ?? false),
+                'link_overrides'   => !empty($item['link_overrides']) ? $item['link_overrides'] : null,
                 'priority'         => $item['priority'] ?? 0,
             ]);
         }
@@ -173,7 +311,7 @@ new class extends Component
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h2 class="fw-bold text-white m-0">Редактирование шаблона #{{ $templateId }}</h2>
-            <p class="text-muted small mb-0">Изменение состава нод, лимитов и параметров TLS</p>
+            <p class="text-muted small mb-0">Изменение состава нод, лимитов трафика, TLS и кастомных редакций ссылок</p>
         </div>
         <a href="{{ route('subscription-templates.index') }}" wire:navigate class="btn btn-dark border-0 px-3 fw-bold">
             <i class="bi bi-arrow-left me-1"></i> Назад
@@ -226,20 +364,20 @@ new class extends Component
 
             <!-- Конструктор инбаундов -->
             <div class="col-lg-8">
-                <div class="card border-0 shadow-sm rounded-4 text-white" style="background: #1a1d21;">
+                <div class="card border-0 shadow-lg rounded-4 text-white" style="background: #1a1d21;">
                     <div class="card-header border-bottom border-white border-opacity-10 bg-transparent fw-bold py-3 d-flex justify-content-between align-items-center">
                         <span><i class="bi bi-diagram-3 me-2 text-primary"></i> Привязанные инбаунды</span>
                         <span class="badge bg-primary rounded-pill px-3">{{ count($selectedInbounds) }}</span>
                     </div>
                     <div class="card-body p-4">
 
-                        <!-- Панель добавления -->
-                        <div class="p-3 mb-4 rounded-4" style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05);">
+                        <!-- Панель добавления нового инбаунда -->
+                        <div class="p-3 mb-4 rounded-4" style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06);">
                             <div class="row g-2 mb-2">
                                 <div class="col-md-6">
-                                    <label class="form-label small text-muted text-uppercase fw-bold">Выберите Ноду</label>
+                                    <label class="form-label small text-muted text-uppercase fw-bold">Нода</label>
                                     <select wire:model.live="selectedNodeId" class="form-select bg-dark text-white border-0">
-                                        <option value="">-- Нода --</option>
+                                        <option value="">-- Выберите ноду --</option>
                                         @foreach($this->nodes as $node)
                                             <option value="{{ $node->id }}">{{ $node->name }} ({{ $node->ip }})</option>
                                         @endforeach
@@ -266,14 +404,14 @@ new class extends Component
 
                             <div class="row g-2 align-items-end">
                                 <div class="col-md-5">
-                                    <label class="form-label small text-muted text-uppercase fw-bold">Трафик (ГБ)</label>
+                                    <label class="form-label small text-muted text-uppercase fw-bold">Лимит трафика (ГБ)</label>
                                     <div class="input-group input-group-sm">
                                         <input type="number" min="0" wire:model="newTrafficLimitGb" class="form-control bg-dark text-white border-0" placeholder="0 = безлимит">
                                         <span class="input-group-text bg-dark text-muted border-0">GB</span>
                                     </div>
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label small text-muted text-uppercase fw-bold">TLS</label>
+                                    <label class="form-label small text-muted text-uppercase fw-bold">TLS Режим</label>
                                     <div class="tls-toggle-card p-2 d-flex align-items-center justify-content-between {{ $newIsTls ? 'active' : '' }}"
                                          wire:click="$toggle('newIsTls')" style="cursor:pointer;">
                                         <div class="d-flex align-items-center">
@@ -287,7 +425,7 @@ new class extends Component
                                     </div>
                                 </div>
                                 <div class="col-md-3">
-                                    <button type="button" wire:click="addInbound" class="btn btn-primary w-100 fw-bold btn-sm py-2">
+                                    <button type="button" wire:click="addInbound" class="btn btn-primary w-100 fw-bold btn-sm py-2 shadow-sm">
                                         <i class="bi bi-plus-lg me-1"></i> Добавить
                                     </button>
                                 </div>
@@ -309,9 +447,9 @@ new class extends Component
                                 <tr>
                                     <th class="ps-3 text-muted small text-uppercase fw-bold">Нода</th>
                                     <th class="text-muted small text-uppercase fw-bold">Инбаунд</th>
-                                    <th class="text-muted small text-uppercase fw-bold" style="width: 110px;">Лимит (ГБ)</th>
-                                    <th class="text-center text-muted small text-uppercase fw-bold" style="width: 60px;">TLS</th>
-                                    <th class="text-muted small text-uppercase fw-bold" style="width: 80px;">Приоритет</th>
+                                    <th class="text-muted small text-uppercase fw-bold" style="width: 100px;">Лимит (ГБ)</th>
+                                    <th class="text-center text-muted small text-uppercase fw-bold" style="width: 170px;">Режим ссылки</th>
+                                    <th class="text-muted small text-uppercase fw-bold" style="width: 70px;">Приор.</th>
                                     <th class="text-end pe-3 text-muted small text-uppercase fw-bold" style="width: 40px;"></th>
                                 </tr>
                                 </thead>
@@ -337,10 +475,36 @@ new class extends Component
                                             <input type="number" min="0" wire:model="selectedInbounds.{{ $index }}.traffic_limit_gb" class="form-control form-control-sm bg-dark text-white border-0 text-center px-1" title="0 = Безлимит">
                                         </td>
                                         <td class="text-center">
-                                            <div class="tls-toggle-mini {{ $item['is_tls'] ? 'active' : '' }}"
-                                                 wire:click="$set('selectedInbounds.{{ $index }}.is_tls', {{ $item['is_tls'] ? 'false' : 'true' }})">
-                                                <i class="bi bi-shield-lock-fill {{ $item['is_tls'] ? 'text-warning' : 'text-secondary opacity-50' }}"></i>
-                                            </div>
+                                            @if(!empty($item['link_overrides']))
+                                                <button type="button" wire:click="openOverrideModal({{ $index }})"
+                                                        class="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1 px-2 py-1 rounded-pill shadow-sm"
+                                                        title="Редакция активна. Нажмите для изменения">
+                                                    <i class="bi bi-sliders"></i>
+                                                    <span style="font-size: 11px;">
+                                                        {{ !empty($item['link_overrides']['host']) ? Str::limit($item['link_overrides']['host'], 14) : 'Редакция' }}
+                                                    </span>
+                                                </button>
+                                            @elseif(!empty($item['is_tls']))
+                                                <div class="d-inline-flex align-items-center gap-1">
+                                                    <span class="badge bg-warning bg-opacity-15 text-warning border border-warning border-opacity-25 py-1 px-2 rounded-pill"
+                                                          wire:click="$set('selectedInbounds.{{ $index }}.is_tls', false)" style="cursor: pointer;" title="Нажмите, чтобы выключить TLS">
+                                                        <i class="bi bi-shield-lock-fill me-1"></i>TLS
+                                                    </span>
+                                                    <button type="button" wire:click="openOverrideModal({{ $index }})" class="btn btn-sm btn-dark text-muted p-1 rounded-2" title="Настроить редакцию">
+                                                        <i class="bi bi-sliders text-primary"></i>
+                                                    </button>
+                                                </div>
+                                            @else
+                                                <div class="d-inline-flex align-items-center gap-1">
+                                                    <span class="badge bg-secondary bg-opacity-15 text-light border border-secondary border-opacity-25 py-1 px-2 rounded-pill"
+                                                          wire:click="$set('selectedInbounds.{{ $index }}.is_tls', true)" style="cursor: pointer;" title="Нажмите, чтобы включить TLS">
+                                                        Прямой
+                                                    </span>
+                                                    <button type="button" wire:click="openOverrideModal({{ $index }})" class="btn btn-sm btn-dark text-muted p-1 rounded-2" title="Настроить редакцию">
+                                                        <i class="bi bi-sliders text-secondary"></i>
+                                                    </button>
+                                                </div>
+                                            @endif
                                         </td>
                                         <td>
                                             <input type="number" wire:model="selectedInbounds.{{ $index }}.priority" class="form-control form-control-sm bg-dark text-white border-0 text-center">
@@ -373,9 +537,151 @@ new class extends Component
             </div>
         </div>
     </form>
+
+    <!-- Модальное окно редакции параметров ссылки -->
+    @if($editingOverrideIndex !== null)
+    <div class="modal fade show d-block" tabindex="-1" wire:click.self="closeOverrideModal" @keydown.escape.window="closeOverrideModal" style="background: rgba(0,0,0,0.75); backdrop-filter: blur(8px); z-index: 1050;">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg rounded-4 text-white" style="background: #1a1d21; border: 1px solid rgba(255, 255, 255, 0.1) !important;">
+                <div class="modal-header border-bottom border-white border-opacity-10 py-3 px-4">
+                    <div class="d-flex align-items-center">
+                        <div class="bg-primary bg-opacity-10 p-2 rounded-3 me-3 text-primary d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+                            <i class="bi bi-sliders fs-5"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold m-0 text-white">Редакция ссылки инбаунда</h5>
+                            <div class="text-muted small" style="font-size: 12px;">
+                                {{ $selectedInbounds[$editingOverrideIndex]['node_name'] ?? '' }} &bull; {{ $selectedInbounds[$editingOverrideIndex]['title'] ?? '' }} (ID: {{ $selectedInbounds[$editingOverrideIndex]['inbound_id'] ?? '' }})
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="closeOverrideModal" class="btn-close btn-close-white shadow-none"></button>
+                </div>
+
+                <div class="modal-body p-4">
+                    <!-- Главный переключатель редакции -->
+                    <div class="p-3 mb-4 rounded-3 d-flex align-items-center justify-content-between {{ (!empty($editingOverrides['enabled'])) ? 'bg-primary bg-opacity-10 border border-primary border-opacity-25' : 'bg-dark bg-opacity-50 border border-white border-opacity-10' }}"
+                         wire:click="$toggle('editingOverrides.enabled')" style="cursor: pointer; transition: all 0.2s ease;">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-toggle2-on me-3 fs-4 {{ (!empty($editingOverrides['enabled'])) ? 'text-primary' : 'text-muted' }}"></i>
+                            <div>
+                                <div class="fw-bold small text-white">Включить переопределение параметров ссылки</div>
+                                <div class="text-muted" style="font-size: 11px;">Подмена хоста подключения (CDN/IP), порта и любых параметров VLESS/xHTTP</div>
+                            </div>
+                        </div>
+                        <div class="form-check form-switch m-0" onclick="event.stopPropagation()">
+                            <input class="form-check-input shadow-none" type="checkbox" role="switch"
+                                   wire:model.live="editingOverrides.enabled" style="cursor: pointer; width: 2.2rem; height: 1.2rem;">
+                        </div>
+                    </div>
+
+                    @if(!empty($editingOverrides['enabled']))
+                    <!-- Основные поля: Хост, Порт, Суффикс -->
+                    <div class="p-3 rounded-3 mb-4" style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.06);">
+                        <div class="row g-3">
+                            <div class="col-md-5">
+                                <label class="form-label small text-muted fw-bold mb-1" style="font-size: 11px;">Хост подключения (Domain / IP)</label>
+                                <input type="text" wire:model="editingOverrides.host" class="form-control bg-dark text-white border-0 shadow-none py-2" placeholder="Оставьте пустым для исх. ноды">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small text-muted fw-bold mb-1" style="font-size: 11px;">Порт</label>
+                                <input type="number" min="1" max="65535" wire:model="editingOverrides.port" class="form-control bg-dark text-white border-0 shadow-none py-2" placeholder="443">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small text-muted fw-bold mb-1" style="font-size: 11px;">Суффикс названия конфига</label>
+                                <input type="text" wire:model="editingOverrides.suffix" class="form-control bg-dark text-white border-0 shadow-none py-2" placeholder="Например: (Обход)">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Произвольные query-параметры -->
+                    <div class="p-3 rounded-3" style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.06);">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <span class="small fw-bold text-white text-uppercase" style="font-size: 11px;">
+                                    <i class="bi bi-code-square me-1 text-primary"></i> Параметры ссылки (Query string)
+                                </span>
+                                <div class="text-muted" style="font-size: 11px;">Любые параметры: sni, host, path, type, security, mode, fp, alpn...</div>
+                            </div>
+                            <button type="button" wire:click="addOverrideParam('', '')" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1" style="font-size: 11px;">
+                                <i class="bi bi-plus-lg me-1"></i> Добавить параметр
+                            </button>
+                        </div>
+
+                        @php
+                            $quickChips = [
+                                'type'     => 'xhttp',
+                                'security' => 'tls',
+                                'path'     => '/assets/vendor.js',
+                                'host'     => '',
+                                'sni'      => '',
+                                'fp'       => 'randomized',
+                                'alpn'     => 'h3,h2,http/1.1',
+                                'mode'     => 'packet-up',
+                            ];
+                        @endphp
+                        <!-- Быстрые чипы -->
+                        <div class="d-flex flex-wrap align-items-center gap-1 mb-3">
+                            <span class="text-muted small me-1" style="font-size: 11px;">Быстро добавить:</span>
+                            @foreach($quickChips as $chipKey => $chipVal)
+                                <button type="button" wire:click="addOverrideParam('{{ $chipKey }}', '{{ $chipVal }}')"
+                                        class="badge bg-dark text-muted border border-secondary border-opacity-25 text-decoration-none py-1 px-2 rounded-2 hover-chip shadow-none" style="font-size: 11px; cursor: pointer;">
+                                    + {{ $chipKey }}
+                                </button>
+                            @endforeach
+                        </div>
+
+                        @forelse($editingOverrides['params'] ?? [] as $pIdx => $param)
+                            <div class="row g-2 mb-2 align-items-center" wire:key="param-row-{{ $param['uid'] ?? $pIdx }}">
+                                <div class="col-md-4">
+                                    <input type="text" wire:model="editingOverrides.params.{{ $pIdx }}.key"
+                                           class="form-control form-control-sm bg-dark text-white border-0 shadow-none font-monospace py-2" placeholder="Ключ (напр. sni)">
+                                </div>
+                                <div class="col-md-7">
+                                    <input type="text" wire:model="editingOverrides.params.{{ $pIdx }}.value"
+                                           class="form-control form-control-sm bg-dark text-white border-0 shadow-none py-2" placeholder="Значение параметра">
+                                </div>
+                                <div class="col-md-1 text-end">
+                                    <button type="button" wire:click="removeOverrideParam({{ $pIdx }})" class="btn btn-sm btn-dark text-danger border-0 p-1" title="Удалить">
+                                        <i class="bi bi-trash3"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="text-muted small py-3 text-center" style="font-size: 12px;">
+                                <i class="bi bi-info-circle me-1 opacity-50"></i> Дополнительные параметры не заданы. Ссылка сохранит оригинальные параметры инбаунда.
+                            </div>
+                        @endforelse
+                    </div>
+                    @else
+                    <div class="p-4 rounded-3 text-center text-muted small" style="background: rgba(255, 255, 255, 0.02); border: 1px dashed rgba(255, 255, 255, 0.1);">
+                        <i class="bi bi-shield-check fs-3 d-block mb-2 opacity-50 text-secondary"></i>
+                        Редакция отключена. Клиентам будет выдаваться стандартная ссылка на ноду без подмены хоста и параметров.
+                    </div>
+                    @endif
+                </div>
+
+                <div class="modal-footer border-top border-white border-opacity-10 py-3 px-4">
+                    <button type="button" wire:click="closeOverrideModal" class="btn btn-dark border-0 px-3 fw-bold">Отмена</button>
+                    <button type="button" wire:click="saveOverrides" class="btn btn-primary px-4 fw-bold shadow-sm">
+                        <i class="bi bi-check2 me-1"></i> Сохранить редакцию
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endif
 </div>
 
 <style>
+    .hover-chip {
+        transition: all 0.2s ease;
+    }
+    .hover-chip:hover {
+        color: #fff !important;
+        border-color: #0d6efd !important;
+        background: rgba(13, 110, 253, 0.15) !important;
+    }
     .tls-toggle-card {
         background: rgba(255, 255, 255, 0.03);
         border: 1px solid rgba(255, 255, 255, 0.08);
@@ -385,22 +691,6 @@ new class extends Component
     .tls-toggle-card.active {
         background: rgba(255, 193, 7, 0.1);
         border-color: rgba(255, 193, 7, 0.35);
-    }
-    .tls-toggle-mini {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-    .tls-toggle-mini.active {
-        background: rgba(255, 193, 7, 0.15);
-        border-color: rgba(255, 193, 7, 0.4);
     }
     .custom-checkbox {
         width: 1.4rem !important;
