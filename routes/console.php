@@ -8,5 +8,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('nodes:sync-stats')
-    ->everyFiveMinutes()
-    ->withoutOverlapping(10);
+    ->everyFiveMinutes();
