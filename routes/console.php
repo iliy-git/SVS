@@ -9,5 +9,4 @@ Artisan::command('inspire', function () {
 
 Schedule::command('nodes:sync-stats')
     ->everyFiveMinutes()
-    ->withoutOverlapping()
-    ->runInBackground();
+    ->withoutOverlapping(10);
