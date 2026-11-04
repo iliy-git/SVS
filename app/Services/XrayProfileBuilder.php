@@ -58,7 +58,8 @@ class XrayProfileBuilder
                 $configName = $conf->name ?: $conf->email;
 
                 $displayName = "{$flagEmoji} {$configName} | {$usedLabel} / {$limitLabel}";
-                $serverNodes[] = $this->generateFullConfig($displayName, [$outbound], $sub->name);
+                $isBaseStation = (bool)($conf->is_main || ($mainConfig && $conf->id === $mainConfig->id) || (($outbound['streamSettings']['network'] ?? '') === 'xhttp'));
+                $serverNodes[] = $this->generateFullConfig($displayName, [$outbound], $sub->name, null, null, $isBaseStation);
             }
         }
 
@@ -236,7 +237,7 @@ class XrayProfileBuilder
         return null;
     }
 
-    private function generateFullConfig($remarks, $proxyOutbounds, $subName, $balancerTags = null, $fallbackTag = null)
+    private function generateFullConfig($remarks, $proxyOutbounds, $subName, $balancerTags = null, $fallbackTag = null, bool $isBaseStation = false)
     {
         $outbounds = $proxyOutbounds;
         $outbounds[] = ["protocol" => "freedom", "settings" => ["domainStrategy" => "UseIP"], "tag" => "direct"];
@@ -255,9 +256,14 @@ class XrayProfileBuilder
         $rules = [
             ["type" => "field", "inboundTag" => ["metrics_in"], "outboundTag" => "metrics_out"],
             ["type" => "field", "protocol" => ["bittorrent"], "outboundTag" => "direct"],
-            ["type" => "field", "geosite" => ["category-gov-ru", "category-ru", "vk", "yandex"], "domain" => $directDomains, "outboundTag" => "direct"],
-            ["type" => "field", "ip" => ["8.8.8.8"], "port" => "53", "outboundTag" => "direct"]
         ];
+
+        if ($isBaseStation) {
+            $rules[] = ["type" => "field", "port" => "443", "network" => "udp", "outboundTag" => "block"];
+        }
+
+        $rules[] = ["type" => "field", "geosite" => ["category-gov-ru", "category-ru", "vk", "yandex"], "domain" => $directDomains, "outboundTag" => "direct"];
+        $rules[] = ["type" => "field", "ip" => ["8.8.8.8"], "port" => "53", "outboundTag" => "direct"];
 
         $balancers = [];
         $observatory = null;
