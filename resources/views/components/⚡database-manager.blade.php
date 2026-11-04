@@ -45,6 +45,11 @@ new class extends Component {
             return;
         }
 
+        // Сбрасываем все данные из WAL-журнала в основной файл SQLite перед выгрузкой
+        try {
+            DB::statement('PRAGMA wal_checkpoint(TRUNCATE)');
+        } catch (\Exception $e) {}
+
         return Response::download($dbPath, 'backup-' . now()->format('Y-m-d-H-i') . '.sqlite');
     }
 
@@ -107,7 +112,13 @@ new class extends Component {
             copy($dbPath, $dbPath . '.bak');
         }
 
+        // Закрываем активные подключения и удаляем старые WAL/SHM журналы
+        DB::disconnect();
+        @unlink($dbPath . '-wal');
+        @unlink($dbPath . '-shm');
+
         if (copy($tempPath, $dbPath)) {
+            @chmod($dbPath, 0666);
             $this->backupFile = null;
             $this->refreshStats();
             session()->flash('success', 'Данные успешно восстановлены!');

@@ -53,6 +53,27 @@ services:
       - vpn-net
     restart: always
 
+  bot:
+    build:
+      context: .
+      args:
+        - USER_ID=${UID:-1000}
+        - GROUP_ID=${GID:-1000}
+    container_name: vpn-admin-bot
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - .:/var/www
+    working_dir: /var/www
+    command: php artisan tg:poll
+    environment:
+      - DB_CONNECTION=sqlite
+      - DB_DATABASE=/var/www/database/database.sqlite
+    depends_on:
+      - app
+    networks:
+      - vpn-net
+    restart: always
+
 networks:
   vpn-net:
     driver: bridge

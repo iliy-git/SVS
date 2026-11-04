@@ -106,18 +106,23 @@ class TelegramService
     }
 
     /**
-    * Запуск слушателя сообщений
-    */
+     * Запуск слушателя сообщений
+     */
     public function startPolling(): void
     {
         $basePath = base_path();
-        $artisan = base_path('artisan');
-
-        $command = "cd $basePath && nohup php artisan tg:poll > /dev/null 2>&1 &";
 
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
             pclose(popen("start /B php artisan tg:poll", "r"));
         } else {
+            // Проверяем, не запущен ли уже процесс (например, супервизором или в контейнере бота)
+            $pids = [];
+            exec('pgrep -f "artisan tg:poll"', $pids);
+            if (!empty($pids)) {
+                return; // Уже запущен, избегаем дублирования и ошибки 409 Conflict
+            }
+
+            $command = "cd $basePath && nohup php artisan tg:poll >> storage/logs/telegram-bot.log 2>&1 &";
             exec($command);
         }
     }
@@ -135,13 +140,14 @@ class TelegramService
 
         \Illuminate\Support\Facades\Cache::forget('tg_poll_lock');
     }
+
     /**
      * Запуск демона мониторинга нод
      */
     public function startNodesMonitoring(): void
     {
         $basePath = base_path();
-        $command = "cd $basePath && nohup php artisan nodes:check > /dev/null 2>&1 &";
+        $command = "cd $basePath && nohup php artisan nodes:check >> storage/logs/nodes-monitor.log 2>&1 &";
 
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
             pclose(popen("start /B php artisan nodes:check", "r"));
@@ -156,13 +162,12 @@ class TelegramService
     public function stopNodesMonitoring(): void
     {
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-            // На винде мягко убить отдельный php-скрипт сложно, тушится всё
             exec('taskkill /F /IM php.exe /T');
         } else {
-            // На Linux точечно убиваем процесс демона нод
             exec('pkill -f "nodes:check"');
         }
     }
+
     /**
      * Отправка уведомлений если нода не отвечает
      */
@@ -190,13 +195,14 @@ class TelegramService
 
         return $response->ok();
     }
+
     /**
      * Запуск демона мониторинга подписок
      */
     public function startSubscriptionsMonitoring(): void
     {
         $basePath = base_path();
-        $command = "cd $basePath && nohup php artisan subscriptions:check-expiry > /dev/null 2>&1 &";
+        $command = "cd $basePath && nohup php artisan subscriptions:check-expiry >> storage/logs/subscriptions-monitor.log 2>&1 &";
 
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
             pclose(popen("start /B php artisan subscriptions:check-expiry", "r"));
