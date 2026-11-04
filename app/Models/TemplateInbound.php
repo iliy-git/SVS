@@ -11,6 +11,7 @@ class TemplateInbound extends Model
         'template_id',
         'node_id',
         'inbound_id',
+        'custom_name',
         'priority',
         'traffic_limit_gb',
         'is_tls',

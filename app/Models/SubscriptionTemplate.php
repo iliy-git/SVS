@@ -11,7 +11,7 @@ class SubscriptionTemplate extends Model
 
     public function inbounds(): HasMany
     {
-        return $this->hasMany(TemplateInbound::class, 'template_id');
+        return $this->hasMany(TemplateInbound::class, 'template_id')->orderBy('priority', 'asc')->orderBy('id', 'asc');
     }
 
     public function subscriptions(): HasMany

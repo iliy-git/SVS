@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Subscription;
 use App\Models\Client;
+use App\Models\Config;
 use App\Models\SubscriptionTemplate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -289,8 +290,15 @@ class SubscriptionService
     /**
      * Формирует читаемое название конфигурации.
      */
-    protected function resolveConfigName($node, $templateInbound): string
+    public function resolveConfigName($node, $templateInbound): string
     {
+        // 1. Если задано кастомное имя в шаблоне — используем его
+        $customName = trim((string)($templateInbound->custom_name ?? ''));
+        if ($customName !== '') {
+            return $customName;
+        }
+
+        // 2. Иначе стандартный fallback по имени ноды + суффикс
         $baseName = $node->name ?? ('Node ' . $node->id);
         $hasOverrides = $this->hasLinkOverrides($templateInbound);
         $isBypass = !empty($templateInbound->is_main) || !empty($templateInbound->is_tls) || $hasOverrides;
@@ -494,12 +502,22 @@ class SubscriptionService
             }
         }
 
+        // 4. Проверка изменения названия подписки
+        $needsSubNameSync = ($subscription->name !== $template->name);
+
         // Быстрый выход, если расхождений нет
-        if ($inboundsToAdd->isEmpty() && $configsToRemove->isEmpty() && empty($configsToUpdate)) {
+        if ($inboundsToAdd->isEmpty() && $configsToRemove->isEmpty() && empty($configsToUpdate) && !$needsSubNameSync) {
             return false;
         }
 
         $hasChanges = false;
+
+        // Если изменилось название шаблона — актуализируем имя подписки
+        if ($needsSubNameSync) {
+            $subscription->name = $template->name;
+            $subscription->save();
+            $hasChanges = true;
+        }
 
         // Применяем удаление
         foreach ($configsToRemove as $c) {
@@ -615,5 +633,47 @@ class SubscriptionService
         }
 
         return $hasChanges;
+    }
+
+    /**
+     * Массовая синхронизация всех существующих подписок и их конфигов при изменении шаблона.
+     */
+    public function syncAllSubscriptionsWithTemplate(SubscriptionTemplate $template, bool $syncSubscriptionName = true): array
+    {
+        $updatedSubs = 0;
+        $updatedConfigs = 0;
+
+        // 1. Обновляем название самих подписок
+        if ($syncSubscriptionName && !empty($template->name)) {
+            $updatedSubs = Subscription::where('template_id', $template->id)->update([
+                'name' => $template->name,
+            ]);
+        }
+
+        // 2. Обновляем имена и порядок (priority) конфигов у всех существующих подписок этого шаблона
+        $template->loadMissing(['inbounds' => function ($q) {
+            $q->orderBy('priority', 'asc')->orderBy('id', 'asc');
+        }, 'inbounds.node']);
+
+        foreach ($template->inbounds as $ti) {
+            $expectedName = $this->resolveConfigName($ti->node, $ti);
+
+            $count = Config::whereHas('subscriptions', function ($query) use ($template) {
+                $query->where('subscriptions.template_id', $template->id);
+            })
+            ->where('node_id', $ti->node_id)
+            ->where('inbound_id', $ti->inbound_id)
+            ->update([
+                'name'     => $expectedName,
+                'priority' => (int)($ti->priority ?? 0),
+            ]);
+
+            $updatedConfigs += $count;
+        }
+
+        return [
+            'updated_subscriptions' => $updatedSubs,
+            'updated_configs'       => $updatedConfigs,
+        ];
     }
 }

@@ -20,7 +20,7 @@ class SubscriptionController extends Controller
         app(\App\Services\SubscriptionService::class)->syncWithTemplate($sub);
         
         $sub->load(['configs' => function($query) {
-            $query->where('is_active', true);
+            $query->where('is_active', true)->orderBy('configs.priority', 'asc')->orderBy('configs.id', 'asc');
         }, 'configs.flag', 'configs.node.flag']);
 
         // 2. Актуализация даты окончания в памяти/БД (без внешних сетевых вызовов)

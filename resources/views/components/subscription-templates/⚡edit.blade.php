@@ -15,6 +15,7 @@ new class extends Component
     public string $slug = '';
     public string $description = '';
     public bool $is_active = true;
+    public bool $sync_subscription_names = true;
 
     // Список привязанных инбаундов
     public array $selectedInbounds = [];
@@ -22,6 +23,7 @@ new class extends Component
     // Буферные поля добавления инбаунда
     public ?int $selectedNodeId = null;
     public ?int $selectedInboundId = null;
+    public ?string $newCustomName = '';
     public int $newTrafficLimitGb = 0;
     public bool $newIsTls = false;
 
@@ -31,17 +33,25 @@ new class extends Component
 
     public array $availableInbounds = [];
 
+    #[Computed]
+    public function subscriptionsCount(): int
+    {
+        return \App\Models\Subscription::where('template_id', $this->templateId)->count();
+    }
+
     public function mount(int $templateId): void
     {
         $this->templateId = $templateId;
-        $template = SubscriptionTemplate::with('inbounds.node.flag')->findOrFail($templateId);
+        $template = SubscriptionTemplate::with(['inbounds' => function ($q) {
+            $q->orderBy('priority', 'asc')->orderBy('id', 'asc');
+        }, 'inbounds.node.flag'])->findOrFail($templateId);
 
         $this->name = $template->name;
         $this->slug = $template->slug;
         $this->description = $template->description ?? '';
         $this->is_active = (bool)$template->is_active;
 
-        foreach ($template->inbounds as $inboundRelation) {
+        foreach ($template->inbounds as $i => $inboundRelation) {
             $node = $inboundRelation->node;
             $this->selectedInbounds[] = [
                 'node_id'          => $inboundRelation->node_id,
@@ -49,10 +59,11 @@ new class extends Component
                 'flag_code'        => ($node && $node->flag) ? strtoupper($node->flag->code) : null,
                 'inbound_id'       => $inboundRelation->inbound_id,
                 'title'            => 'Inbound #' . $inboundRelation->inbound_id,
+                'custom_name'      => $inboundRelation->custom_name ?? '',
                 'traffic_limit_gb' => $inboundRelation->traffic_limit_gb ?? 0,
                 'is_tls'           => (bool)($inboundRelation->is_tls ?? false),
                 'link_overrides'   => $inboundRelation->link_overrides ?? null,
-                'priority'         => $inboundRelation->priority ?? 0,
+                'priority'         => ($i + 1) * 10,
             ];
         }
     }
@@ -105,14 +116,17 @@ new class extends Component
             'flag_code'        => $node->flag ? strtoupper($node->flag->code) : null,
             'inbound_id'       => (int)$this->selectedInboundId,
             'title'            => $title,
+            'custom_name'      => !empty($this->newCustomName) ? trim($this->newCustomName) : '',
             'traffic_limit_gb' => $this->newTrafficLimitGb,
             'is_tls'           => $this->newIsTls,
             'link_overrides'   => null,
-            'priority'         => count($this->selectedInbounds) * 10,
+            'priority'         => (count($this->selectedInbounds) + 1) * 10,
         ];
+        $this->resequencePriorities();
 
         $this->selectedNodeId = null;
         $this->selectedInboundId = null;
+        $this->newCustomName = '';
         $this->newTrafficLimitGb = 0;
         $this->newIsTls = false;
         $this->availableInbounds = [];
@@ -253,10 +267,39 @@ new class extends Component
         $this->editingOverrideIndex = null;
     }
 
+    public function moveUp(int $index): void
+    {
+        if ($index > 0 && isset($this->selectedInbounds[$index])) {
+            $prev = $this->selectedInbounds[$index - 1];
+            $this->selectedInbounds[$index - 1] = $this->selectedInbounds[$index];
+            $this->selectedInbounds[$index] = $prev;
+            $this->resequencePriorities();
+        }
+    }
+
+    public function moveDown(int $index): void
+    {
+        if ($index < count($this->selectedInbounds) - 1 && isset($this->selectedInbounds[$index])) {
+            $next = $this->selectedInbounds[$index + 1];
+            $this->selectedInbounds[$index + 1] = $this->selectedInbounds[$index];
+            $this->selectedInbounds[$index] = $next;
+            $this->resequencePriorities();
+        }
+    }
+
+    protected function resequencePriorities(): void
+    {
+        $this->selectedInbounds = array_values($this->selectedInbounds);
+        foreach ($this->selectedInbounds as $i => &$item) {
+            $item['priority'] = ($i + 1) * 10;
+        }
+        unset($item);
+    }
+
     public function removeInbound(int $index): void
     {
         unset($this->selectedInbounds[$index]);
-        $this->selectedInbounds = array_values($this->selectedInbounds);
+        $this->resequencePriorities();
     }
 
     #[Computed]
@@ -279,6 +322,8 @@ new class extends Component
             'selectedInbounds.min' => 'Добавьте хотя бы один инбаунд в шаблон.',
         ]);
 
+        $this->resequencePriorities();
+
         $template = SubscriptionTemplate::findOrFail($this->templateId);
         $template->update([
             'name'        => $this->name,
@@ -289,19 +334,32 @@ new class extends Component
 
         $template->inbounds()->delete();
 
-        foreach ($this->selectedInbounds as $item) {
+        foreach ($this->selectedInbounds as $i => $item) {
             TemplateInbound::create([
                 'template_id'      => $template->id,
                 'node_id'          => $item['node_id'],
                 'inbound_id'       => $item['inbound_id'],
+                'custom_name'      => !empty($item['custom_name']) ? trim($item['custom_name']) : null,
                 'traffic_limit_gb' => $item['traffic_limit_gb'] ?? 0,
                 'is_tls'           => (bool)($item['is_tls'] ?? false),
                 'link_overrides'   => !empty($item['link_overrides']) ? $item['link_overrides'] : null,
-                'priority'         => $item['priority'] ?? 0,
+                'priority'         => ($i + 1) * 10,
             ]);
         }
 
-        session()->flash('success', 'Шаблон подписки успешно обновлен!');
+        // Синхронизируем имя подписки и конфигов у всех пользователей
+        $syncResults = app(\App\Services\SubscriptionService::class)
+            ->syncAllSubscriptionsWithTemplate($template, $this->sync_subscription_names);
+
+        $msg = 'Шаблон подписки успешно обновлен!';
+        if ($this->sync_subscription_names && $syncResults['updated_subscriptions'] > 0) {
+            $msg .= " Название обновлено у {$syncResults['updated_subscriptions']} подписок.";
+        }
+        if ($syncResults['updated_configs'] > 0) {
+            $msg .= " Обновлено {$syncResults['updated_configs']} серверов у пользователей.";
+        }
+
+        session()->flash('success', $msg);
 
         $this->redirect(route('subscription-templates.index'), navigate: true);
     }
@@ -329,7 +387,7 @@ new class extends Component
                     <div class="card-body p-4">
                         <div class="mb-3">
                             <label class="form-label small text-muted text-uppercase fw-bold">Название шаблона</label>
-                            <input type="text" wire:model.live="name" class="form-control bg-dark text-white border-0 @error('name') is-invalid @enderror">
+                            <input type="text" wire:model="name" class="form-control bg-dark text-white border-0 @error('name') is-invalid @enderror">
                             @error('name') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
 
@@ -353,9 +411,27 @@ new class extends Component
                                     <div class="text-secondary" style="font-size: 11px;">Выбран по умолчанию при создании подписки</div>
                                 </div>
                             </div>
-                            <div class="form-check m-0" onclick="event.stopPropagation()">
+                            <div class="form-check m-0" style="pointer-events: none;">
                                 <input class="form-check-input custom-checkbox custom-checkbox-green" type="checkbox"
-                                       wire:model.live="is_active" id="isActiveSwitch">
+                                       @checked($is_active) readonly tabindex="-1" id="isActiveSwitch">
+                            </div>
+                        </div>
+
+                        <!-- Тумблер синхронизации имени подписки у пользователей -->
+                        <div class="tls-toggle-card p-3 mt-3 d-flex align-items-center justify-content-between {{ $sync_subscription_names ? 'active-green' : '' }}"
+                             wire:click="$toggle('sync_subscription_names')" style="cursor:pointer;">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-arrow-repeat me-2 fs-5 {{ $sync_subscription_names ? 'text-success' : 'text-secondary' }}"></i>
+                                <div>
+                                    <div class="fw-bold small text-uppercase {{ $sync_subscription_names ? 'text-white' : 'text-secondary' }}">Синхронизировать имя подписки</div>
+                                    <div class="text-secondary" style="font-size: 11px;">
+                                        Обновить имя у пользователей (подписок: {{ $this->subscriptionsCount }})
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-check m-0" style="pointer-events: none;">
+                                <input class="form-check-input custom-checkbox custom-checkbox-green" type="checkbox"
+                                       @checked($sync_subscription_names) readonly tabindex="-1" id="syncSubNamesSwitch">
                             </div>
                         </div>
                     </div>
@@ -374,7 +450,7 @@ new class extends Component
                         <!-- Панель добавления нового инбаунда -->
                         <div class="p-3 mb-4 rounded-4" style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06);">
                             <div class="row g-2 mb-2">
-                                <div class="col-md-6">
+                                <div class="col-md-4">
                                     <label class="form-label small text-muted text-uppercase fw-bold">Нода</label>
                                     <select wire:model.live="selectedNodeId" class="form-select bg-dark text-white border-0">
                                         <option value="">-- Выберите ноду --</option>
@@ -383,7 +459,7 @@ new class extends Component
                                         @endforeach
                                     </select>
                                 </div>
-                                <div class="col-md-6">
+                                <div class="col-md-4">
                                     <label class="form-label small text-muted text-uppercase fw-bold">Инбаунд (3x-ui)</label>
                                     <select wire:model="selectedInboundId" class="form-select bg-dark text-white border-0" @disabled(!$selectedNodeId)>
                                         <option value="">-- Выберите инбаунд --</option>
@@ -399,6 +475,10 @@ new class extends Component
                                             </option>
                                         @endforeach
                                     </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-muted text-uppercase fw-bold">Имя в подписке (Config Name)</label>
+                                    <input type="text" wire:model.live.debounce.200ms="newCustomName" class="form-control bg-dark text-white border-0" placeholder="Напр. ⚡ Нидерланды 10G (опция)">
                                 </div>
                             </div>
 
@@ -445,18 +525,25 @@ new class extends Component
                             <table class="table table-hover align-middle mb-0">
                                 <thead style="background: rgba(0,0,0,0.2);">
                                 <tr>
-                                    <th class="ps-3 text-muted small text-uppercase fw-bold">Нода</th>
+                                    <th class="ps-3 text-center text-muted small text-uppercase fw-bold" style="width: 50px;">#</th>
+                                    <th class="text-muted small text-uppercase fw-bold">Нода</th>
                                     <th class="text-muted small text-uppercase fw-bold">Инбаунд</th>
-                                    <th class="text-muted small text-uppercase fw-bold" style="width: 100px;">Лимит (ГБ)</th>
-                                    <th class="text-center text-muted small text-uppercase fw-bold" style="width: 170px;">Режим ссылки</th>
-                                    <th class="text-muted small text-uppercase fw-bold" style="width: 70px;">Приор.</th>
-                                    <th class="text-end pe-3 text-muted small text-uppercase fw-bold" style="width: 40px;"></th>
+                                    <th class="text-muted small text-uppercase fw-bold" style="width: 210px;">Имя в подписке</th>
+                                    <th class="text-muted small text-uppercase fw-bold" style="width: 90px;">Лимит (ГБ)</th>
+                                    <th class="text-center text-muted small text-uppercase fw-bold" style="width: 160px;">Режим ссылки</th>
+                                    <th class="text-center text-muted small text-uppercase fw-bold" style="width: 100px;">Порядок</th>
+                                    <th class="text-end pe-3 text-muted small text-uppercase fw-bold" style="width: 45px;"></th>
                                 </tr>
                                 </thead>
                                 <tbody class="border-0">
                                 @forelse($selectedInbounds as $index => $item)
-                                    <tr wire:key="sel-inb-{{ $index }}" class="border-bottom border-white border-opacity-5">
-                                        <td class="ps-3">
+                                    <tr wire:key="sel-inb-{{ $item['node_id'] }}-{{ $item['inbound_id'] }}" class="border-bottom border-white border-opacity-5">
+                                        <td class="ps-3 text-center">
+                                            <span class="badge bg-dark border border-white border-opacity-15 text-white-50 px-2 py-1 rounded-pill" style="font-size: 11px;">
+                                                #{{ $index + 1 }}
+                                            </span>
+                                        </td>
+                                        <td>
                                             <div class="d-flex align-items-center">
                                                 @if(!empty($item['flag_code']))
                                                     <img src="https://purecatamphetamine.github.io/country-flag-icons/3x2/{{ $item['flag_code'] }}.svg"
@@ -471,8 +558,20 @@ new class extends Component
                                             <div class="fw-bold text-white">{{ $item['title'] ?? ('Inbound #' . $item['inbound_id']) }}</div>
                                             <code class="text-accent bg-dark px-2 py-1 rounded small">ID: {{ $item['inbound_id'] }}</code>
                                         </td>
+                                        <td style="min-width: 170px;">
+                                            <input type="text"
+                                                   wire:key="inb-custom-name-{{ $item['node_id'] }}-{{ $item['inbound_id'] }}"
+                                                   wire:model="selectedInbounds.{{ $index }}.custom_name"
+                                                   class="form-control form-control-sm bg-dark text-white border-0"
+                                                   placeholder="{{ $item['node_name'] }}"
+                                                   title="Имя этого сервера у клиентов в приложении">
+                                        </td>
                                         <td>
-                                            <input type="number" min="0" wire:model="selectedInbounds.{{ $index }}.traffic_limit_gb" class="form-control form-control-sm bg-dark text-white border-0 text-center px-1" title="0 = Безлимит">
+                                            <input type="number" min="0" 
+                                                   wire:key="inb-limit-{{ $item['node_id'] }}-{{ $item['inbound_id'] }}"
+                                                   wire:model="selectedInbounds.{{ $index }}.traffic_limit_gb" 
+                                                   class="form-control form-control-sm bg-dark text-white border-0 text-center px-1" 
+                                                   title="0 = Безлимит">
                                         </td>
                                         <td class="text-center">
                                             @if(!empty($item['link_overrides']))
@@ -506,18 +605,33 @@ new class extends Component
                                                 </div>
                                             @endif
                                         </td>
-                                        <td>
-                                            <input type="number" wire:model="selectedInbounds.{{ $index }}.priority" class="form-control form-control-sm bg-dark text-white border-0 text-center">
+                                        <td class="text-center">
+                                            <div class="btn-group btn-group-sm" role="group">
+                                                <button type="button" 
+                                                        wire:click="moveUp({{ $index }})" 
+                                                        class="btn btn-dark border border-white border-opacity-10 text-white px-2 py-1"
+                                                        @if($index === 0) disabled style="opacity: 0.25; cursor: not-allowed;" @endif
+                                                        title="Поднять выше в списке">
+                                                    <i class="bi bi-chevron-up"></i>
+                                                </button>
+                                                <button type="button" 
+                                                        wire:click="moveDown({{ $index }})" 
+                                                        class="btn btn-dark border border-white border-opacity-10 text-white px-2 py-1"
+                                                        @if($index === count($selectedInbounds) - 1) disabled style="opacity: 0.25; cursor: not-allowed;" @endif
+                                                        title="Опустить ниже в списке">
+                                                    <i class="bi bi-chevron-down"></i>
+                                                </button>
+                                            </div>
                                         </td>
                                         <td class="text-end pe-3">
-                                            <button type="button" wire:click="removeInbound({{ $index }})" class="btn btn-sm btn-dark border-0 rounded-2">
+                                            <button type="button" wire:click="removeInbound({{ $index }})" class="btn btn-sm btn-dark border-0 rounded-2" title="Удалить из шаблона">
                                                 <i class="bi bi-trash3 text-danger"></i>
                                             </button>
                                         </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="6" class="text-center text-muted py-5">
+                                        <td colspan="8" class="text-center text-muted py-5">
                                             <i class="bi bi-inbox fs-2 d-block mb-2 opacity-25"></i>
                                             В шаблоне пока нет привязанных инбаундов.
                                         </td>

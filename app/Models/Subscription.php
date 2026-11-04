@@ -31,7 +31,7 @@ class Subscription extends Model
 
     public function configs(): BelongsToMany
     {
-        return $this->belongsToMany(Config::class);
+        return $this->belongsToMany(Config::class)->orderBy('configs.priority', 'asc')->orderBy('configs.id', 'asc');
     }
 
     public function clients()
