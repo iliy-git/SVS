@@ -264,8 +264,12 @@ class XrayProfileBuilder
 
         if ($balancerTags && count($balancerTags) >= 1) {
             $balancers[] = ["tag" => "balancer-main", "selector" => $balancerTags, "strategy" => ["type" => "leastPing"], "fallbackTag" => $fallbackTag];
-            $observatory = ["subjectSelector" => $balancerTags, "probeUrl" => "http://connectivitycheck.gstatic.com/generate_204", "probeInterval" => "20s", "enableConcurrency" => true];
-            array_unshift($rules, ["type" => "field", "network" => "tcp,udp", "balancerTag" => "balancer-main"]);
+            $observatory = ["subjectSelector" => $balancerTags, "probeUrl" => "https://cp.cloudflare.com/generate_204", "probeInterval" => "1m", "enableConcurrency" => true];
+            array_push($rules, 
+                ["type" => "field", "inboundTag" => ["socks"], "port" => "53", "balancerTag" => "balancer-main"],
+                ["type" => "field", "ip" => ["1.1.1.1"], "port" => "53", "balancerTag" => "balancer-main"],
+                ["type" => "field", "network" => "tcp,udp", "balancerTag" => "balancer-main"]
+            );
         } else {
             $currentProxyTag = $proxyOutbounds[0]['tag'] ?? 'proxy-1';
             array_push($rules, 
