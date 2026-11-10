@@ -9,3 +9,6 @@ Artisan::command('inspire', function () {
 
 Schedule::command('nodes:sync-stats')
     ->everyFiveMinutes();
+
+Schedule::command('nodes:backup')
+    ->dailyAt('04:00');

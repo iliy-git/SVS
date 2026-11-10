@@ -15,7 +15,7 @@ class TelegramService
     /**
      * Сохранение настроек и обновление Webhook
      */
-    public function updateSettings(string $token, string $chatId, bool $isPolling = false, bool $notifyNodes = false, bool $notifySubs = false): void
+    public function updateSettings(string $token, string $chatId, bool $isPolling = false, bool $notifyNodes = false, bool $notifySubs = false, bool $backupNodes = false): void
     {
         // 1. Сначала обновляем файл .env на диске
         $this->updateEnv([
@@ -26,6 +26,7 @@ class TelegramService
         Setting::updateOrCreate(['key' => 'tg_poll_enabled'], ['value' => $isPolling ? '1' : '0']);
         Setting::updateOrCreate(['key' => 'notify_nodes_status'], ['value' => $notifyNodes ? '1' : '0']);
         Setting::updateOrCreate(['key' => 'notify_subs_status'], ['value' => $notifySubs ? '1' : '0']);
+        Setting::updateOrCreate(['key' => 'backup_nodes_daily'], ['value' => $backupNodes ? '1' : '0']);
 
         // --- Управление Polling ---
         $this->stopPolling(); // ВСЕГДА сначала тушим старый процесс!
@@ -40,10 +41,16 @@ class TelegramService
             $this->startNodesMonitoring(); // Запустится уже с новым .env
         }
 
-        // --- Управление окончанием подписок
+        // --- Управление окончанием подписок ---
         $this->stopSubscriptionsMonitoring(); // ВСЕГДА сначала тушим старый процесс!
         if ($notifySubs) {
             $this->startSubscriptionsMonitoring(); // Запустится уже с новым .env
+        }
+
+        // --- Управление ежедневным бэкапом нод ---
+        $this->stopNodesBackupDaemon(); // ВСЕГДА сначала тушим старый процесс!
+        if ($backupNodes) {
+            $this->startNodesBackupDaemon(); // Запустится уже с новым .env
         }
     }
 
@@ -75,6 +82,40 @@ class TelegramService
         $response = $request->post("{$this->baseUrl}{$token}{$endpoint}", $params);
 
         return $response->ok();
+    }
+
+    /**
+     * Отправка документа/файла (бэкапа базы данных) в Telegram
+     */
+    public function sendDocument(string $chatId, string $fileContent, string $fileName, string $caption = ''): bool
+    {
+        $token = env('TELEGRAM_BOT_TOKEN');
+        if (!$token || !$chatId) return false;
+
+        try {
+            $params = [
+                'chat_id'    => $chatId,
+                'parse_mode' => 'HTML'
+            ];
+
+            if ($caption !== '') {
+                $params['caption'] = $caption;
+            }
+
+            $response = Http::timeout(60)
+                ->attach('document', $fileContent, $fileName)
+                ->post("{$this->baseUrl}{$token}/sendDocument", $params);
+
+            if (!$response->successful()) {
+                Log::error("Telegram sendDocument error: " . $response->body());
+                return false;
+            }
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::error("Telegram sendDocument exception: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -220,6 +261,33 @@ class TelegramService
             exec('taskkill /F /IM php.exe /T');
         } else {
             exec('pkill -f "subscriptions:check-expiry"');
+        }
+    }
+
+    /**
+     * Запуск фонового демона ежедневного бэкапа нод
+     */
+    public function startNodesBackupDaemon(): void
+    {
+        $basePath = base_path();
+        $command = "cd $basePath && nohup php artisan nodes:backup --daemon >> storage/logs/nodes-backup.log 2>&1 &";
+
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            pclose(popen("start /B php artisan nodes:backup --daemon", "r"));
+        } else {
+            exec($command);
+        }
+    }
+
+    /**
+     * Остановка фонового демона ежедневного бэкапа нод
+     */
+    public function stopNodesBackupDaemon(): void
+    {
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            exec('taskkill /F /IM php.exe /T');
+        } else {
+            exec('pkill -f "nodes:backup --daemon"');
         }
     }
 }

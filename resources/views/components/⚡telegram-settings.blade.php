@@ -14,6 +14,7 @@ new class extends Component {
     public $isPolling = false;
     public $notifyNodes = false;
     public $notifySubs = false;
+    public $backupNodes = false;
 
     public function mount()
     {
@@ -23,6 +24,7 @@ new class extends Component {
         $this->isPolling = \App\Models\Setting::where('key', 'tg_poll_enabled')->value('value') === '1';
         $this->notifyNodes = \App\Models\Setting::where('key', 'notify_nodes_status')->value('value') === '1';
         $this->notifySubs = \App\Models\Setting::where('key', 'notify_subs_status')->value('value') === '1';
+        $this->backupNodes = \App\Models\Setting::where('key', 'backup_nodes_daily')->value('value') === '1';
     }
 
     public function save(TelegramService $service)
@@ -32,13 +34,15 @@ new class extends Component {
             $this->chatId,
             $this->isPolling,
             $this->notifyNodes,
-            $this->notifySubs
+            $this->notifySubs,
+            $this->backupNodes
         );
 
         $statuses = [];
         if ($this->isPolling) $statuses[] = 'Polling запущен';
         if ($this->notifyNodes) $statuses[] = 'Мониторинг нод активирован';
-        if ($this->notifySubs) $statuses[] = 'Включено оповещение о оканчании подписок';
+        if ($this->notifySubs) $statuses[] = 'Включено оповещение об окончании подписок';
+        if ($this->backupNodes) $statuses[] = 'Ежедневный бэкап нод в Telegram включен';
 
         $message = count($statuses) > 0
             ? 'Настройки сохранены! Запущенные процессы: ' . implode(', ', $statuses) . '.'
@@ -72,6 +76,16 @@ new class extends Component {
         $this->testStatus = $success ? '✅ Отправлено!' : '❌ Ошибка';
     }
 
+    public function runNodesBackup()
+    {
+        $exitCode = \Illuminate\Support\Facades\Artisan::call('nodes:backup', ['--force' => true]);
+        if ($exitCode === 0) {
+            session()->flash('message', 'Бэкап нод успешно запущен и отправлен в Telegram!');
+        } else {
+            session()->flash('error', 'Произошла ошибка при выполнении бэкапа нод (проверьте логи).');
+        }
+    }
+
     #[Computed]
     public function latestMessageAt()
     {
@@ -98,6 +112,9 @@ new class extends Component {
                 <div class="card-body p-3 p-md-4">
                     @if (session()->has('message'))
                         <div class="alert alert-success border-0 small py-2 mb-4">{{ session('message') }}</div>
+                    @endif
+                    @if (session()->has('error'))
+                        <div class="alert alert-danger border-0 small py-2 mb-4">{{ session('error') }}</div>
                     @endif
 
                     <form wire:submit.prevent="save">
@@ -176,6 +193,28 @@ new class extends Component {
                                     </div>
                                 </div>
                             </div>
+                            <div class="col-12 mb-3">
+                                <div class="p-3 rounded-4 border border-secondary-subtle bg-dark shadow-sm d-flex align-items-center justify-content-between transition-all hover-shadow">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="icon-shape {{ $backupNodes ? 'bg-info text-dark' : 'bg-secondary bg-opacity-10 text-muted' }} rounded-3 p-2 transition-all">
+                                            <i class="bi bi-cloud-arrow-down fs-5"></i>
+                                        </div>
+                                        <div>
+                                            <label class="form-check-label d-block fw-bold text-light mb-0" for="backupNodesCheck" style="cursor: pointer;">
+                                                Ежедневный бэкап баз данных нод
+                                            </label>
+                                            <div class="text-muted small" style="font-size: 0.75rem;">
+                                                {{ $backupNodes ? 'Бот раз в сутки выгружает базы всех нод и присылает файлы в этот чат' : 'Автоматический бэкап нод отключен' }}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="tg-switch">
+                                        <input type="checkbox" wire:model.live="backupNodes" id="backupNodesCheck" class="tg-switch-input">
+                                        <label for="backupNodesCheck" class="tg-switch-label"></label>
+                                    </div>
+                                </div>
+                            </div>
 
                             <style>
                                 /* Кастомный свитч без конфликтов с Bootstrap */
@@ -193,9 +232,13 @@ new class extends Component {
                                 .tg-switch-input:checked + .tg-switch-label:before { transform: translateX(24px); }
                                 .hover-shadow:hover { border-color: rgba(13, 110, 253, 0.5) !important; }
                             </style>
-                            <div class="col-12 d-flex gap-2">
+                            <div class="col-12 d-flex flex-wrap gap-2">
                                 <button type="submit" class="btn btn-primary btn-sm px-4 shadow-sm">Сохранить</button>
                                 <button type="button" wire:click="sendTestMessage" class="btn btn-outline-secondary btn-sm">Тест</button>
+                                <button type="button" wire:click="runNodesBackup" wire:loading.attr="disabled" class="btn btn-outline-info btn-sm">
+                                    <span wire:loading.remove wire:target="runNodesBackup"><i class="bi bi-cloud-arrow-down me-1"></i> Бэкап нод сейчас</span>
+                                    <span wire:loading wire:target="runNodesBackup"><span class="spinner-border spinner-border-sm me-1"></span> Выгрузка...</span>
+                                </button>
                             </div>
                         </div>
                     </form>

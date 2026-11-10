@@ -122,7 +122,8 @@ class NodeApiService
      */
     public function fetchNodeClients(Node $node): ?array
     {
-        $baseUrl = "https://{$node->ip}:11223";
+        $port = $node->port ?: 11223;
+        $baseUrl = "https://{$node->ip}:{$port}";
         try {
             $response = Http::withHeaders([
                 'X-API-KEY' => $node->api_key
@@ -136,6 +137,56 @@ class NodeApiService
             }
         } catch (\Throwable $e) {
             Log::warning("Не удалось получить пакетный список клиентов с ноды {$baseUrl}: " . $e->getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * Скачивание файла базы данных (.db) с ноды
+     *
+     * @param Node $node
+     * @return array{filename: string, content: string, size: int}|null
+     */
+    public function downloadNodeBackup(Node $node): ?array
+    {
+        $port = $node->port ?: 11223;
+        $baseUrl = "https://{$node->ip}:{$port}";
+        $apiKey = $node->api_key ?? '';
+
+        try {
+            $response = Http::withHeaders([
+                'X-API-KEY' => $apiKey,
+            ])
+                ->withoutVerifying()
+                ->timeout(30)
+                ->get("{$baseUrl}/backup");
+
+            if ($response->successful()) {
+                // Извлекаем оригинальное имя файла из заголовка Content-Disposition
+                $disposition = $response->header('Content-Disposition');
+                $filename = null;
+                if ($disposition && preg_match('/filename="?([^";]+)"?/', $disposition, $matches)) {
+                    $filename = trim($matches[1]);
+                }
+
+                if (!$filename) {
+                    $cleanName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $node->name ?: $node->ip);
+                    $filename = "apinode-backup-{$cleanName}-" . date('Ymd_His') . ".db";
+                }
+
+                $content = $response->body();
+
+                return [
+                    'filename' => $filename,
+                    'content'  => $content,
+                    'size'     => strlen($content),
+                ];
+            }
+
+            Log::warning("Бэкап с ноды {$node->name} ({$node->ip}:{$port}) вернул HTTP {$response->status()}: " . $response->body());
+        } catch (\Throwable $e) {
+            Log::error("Ошибка скачивания бэкапа с ноды {$node->name} ({$node->ip}:{$port}): " . $e->getMessage());
         }
 
         return null;
