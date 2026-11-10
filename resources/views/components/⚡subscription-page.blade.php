@@ -15,9 +15,13 @@ new #[Layout('layouts.guest')] class extends Component
     {
         $this->token = $token;
 
-        $sub = Subscription::where('token', $token)->first();
+        $sub = Subscription::with(['configs.node'])->where('token', $token)->first();
         if ($sub) {
             app(SubscriptionService::class)->syncWithTemplate($sub);
+            // Актуализируем статистику трафика с нод, если прошло более 120 сек
+            try {
+                app(\App\Services\NodeApiService::class)->refreshAllConfigsStats($sub->configs);
+            } catch (\Throwable $e) {}
         }
     }
 
@@ -27,7 +31,8 @@ new #[Layout('layouts.guest')] class extends Component
         return Subscription::with([
             'clients',
             'configs' => fn($query) => $query->where('is_active', true),
-            'configs.flag'
+            'configs.flag',
+            'configs.node'
         ])
             ->where('token', $this->token)
             ->firstOrFail();
@@ -397,8 +402,8 @@ new #[Layout('layouts.guest')] class extends Component
 
             @php
                 $isExpired = $this->subscription->expires_at && \Carbon\Carbon::parse($this->subscription->expires_at)->isPast();
-                $used = $this->subscription->used_bytes ?? ($this->subscription->up + $this->subscription->down ?? 0);
-                $limit = $this->subscription->traffic_limit_bytes ?? $this->subscription->total_bytes ?? 0;
+                $allConfigsTotal = $this->subscription->configs->sum(fn($c) => (int)($c->up ?? 0) + (int)($c->down ?? 0));
+                $allConfigsLimit = $this->subscription->configs->sum(fn($c) => (float)($c->traffic_limit ?? 0) * (1024**3));
             @endphp
 
             <div class="status-pill {{ $isExpired ? 'status-expired' : 'status-active' }}">
@@ -410,10 +415,25 @@ new #[Layout('layouts.guest')] class extends Component
         {{-- Главный визуальный блок Базовой Станции (БС) --}}
         @if($this->mainConfig)
             @php
-                $bsUp = $this->mainConfig->up ?? 0;
-                $bsDown = $this->mainConfig->down ?? 0;
+                $bsUp = (int)($this->mainConfig->up ?? 0);
+                $bsDown = (int)($this->mainConfig->down ?? 0);
                 $bsTotal = $bsUp + $bsDown;
-                $bsPercentOfTotal = ($used > 0) ? min(100, round(($bsTotal / $used) * 100)) : 0;
+
+                $bsLimitGb = (float)($this->mainConfig->traffic_limit ?? 0);
+                $bsLimitBytes = $bsLimitGb > 0 ? (int)($bsLimitGb * (1024**3)) : 0;
+
+                if ($bsLimitBytes > 0) {
+                    $bsPercent = min(100, round(($bsTotal / $bsLimitBytes) * 100));
+                    $progressText = $this->formatBytes($bsTotal) . ' / ' . $this->formatBytes($bsLimitBytes) . " ({$bsPercent}%)";
+                } else {
+                    $bsPercent = $allConfigsTotal > 0 ? min(100, round(($bsTotal / $allConfigsTotal) * 100)) : 0;
+                    $progressText = $this->formatBytes($bsTotal) . ($allConfigsTotal > 0 ? " ({$bsPercent}% от общего)" : " (Безлимит)");
+                }
+
+                $barWidth = $bsTotal > 0 ? max(2, $bsPercent) : 0;
+                $barGradient = ($bsLimitBytes > 0 && $bsPercent > 85) 
+                    ? 'linear-gradient(90deg, #f59e0b 0%, #ef4444 100%)' 
+                    : 'linear-gradient(90deg, #818cf8 0%, #c084fc 100%)';
             @endphp
 
             <div class="bs-main-card">
@@ -438,17 +458,21 @@ new #[Layout('layouts.guest')] class extends Component
                     </div>
 
                     <div style="text-align: right; font-family: monospace; font-size: 0.85rem; font-weight: 700; color: #818cf8;">
-                        {{ $this->formatBytes($bsTotal) }}
+                        @if($bsLimitBytes > 0)
+                            {{ $this->formatBytes($bsTotal) }} / {{ $this->formatBytes($bsLimitBytes) }}
+                        @else
+                            {{ $this->formatBytes($bsTotal) }}
+                        @endif
                     </div>
                 </div>
 
-                {{-- Шкала участия БС в общем трафике --}}
+                {{-- Шкала участия БС в расходе трафика --}}
                 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #9ca3af; margin-top: 0.5rem;">
-                    <span>Расход БС</span>
-                    <span style="font-family: monospace; color: #a5b4fc;">{{ $bsPercentOfTotal }}% от общего расхода</span>
+                    <span>Расход трафика БС</span>
+                    <span style="font-family: monospace; color: #a5b4fc;">{{ $progressText }}</span>
                 </div>
                 <div class="progress-bar-container" style="height: 6px; margin: 0.4rem 0 0.75rem 0; background: rgba(255,255,255,0.05);">
-                    <div class="progress-bar-fill" style="width: {{ $bsPercentOfTotal }}%; background: linear-gradient(90deg, #818cf8 0%, #c084fc 100%);"></div>
+                    <div class="progress-bar-fill" style="width: {{ $barWidth }}%; background: {{ $barGradient }};"></div>
                 </div>
 
                 {{-- Статистика Up/Down для БС --}}

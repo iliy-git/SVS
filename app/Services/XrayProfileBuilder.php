@@ -151,14 +151,18 @@ class XrayProfileBuilder
         
         $userInfo = "upload={$upBytes}; download={$downBytes}; total={$limitBytes}; expire={$expireTimestamp}";
 
+        $profileWebPageUrl = request()->hasHeader('Host')
+            ? (request()->isSecure() || request()->header('X-Forwarded-Proto') === 'https' ? 'https://' : 'http://') . request()->getHttpHost() . "/sub/{$sub->token}"
+            : url("/sub/{$sub->token}");
+
         return [
             'Content-Type'            => 'text/plain; charset=utf-8',
             'X-Config-Name'           => $safeTitle,
             'Profile-Title'           => $safeTitle,
             'Subscription-Userinfo'   => $userInfo,
             'Profile-Update-Interval' => '2',
-            'Profile-WebPageUrl'      => 'https://t.me/+DyqjfDZNgYY4NjNi',
-            'Support-Url'             => 'https://t.me/+DyqjfDZNgYY4NjNi',
+            'profile-web-page-url'    => $profileWebPageUrl,
+            'support-url'             => 'https://t.me/+DyqjfDZNgYY4NjNi',
             'announce'                => "base64:" . base64_encode($infoText),
             'subscription-pin'        => 'true',
         ];
