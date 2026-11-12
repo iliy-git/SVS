@@ -79,6 +79,13 @@ class TariffPurchaseService
         $errors        = [];
 
         DB::transaction(function () use ($client, $tariff, $periodDays, &$subscriptions, &$errors): void {
+            $clientTariff = \App\Models\ClientTariff::create([
+                'client_id'    => $client->id,
+                'tariff_id'    => $tariff->id,
+                'custom_price' => null,
+                'expires_at'   => now()->addDays($periodDays),
+            ]);
+
             foreach ($tariff->items as $item) {
                 $template = $item->template;
 
@@ -93,10 +100,11 @@ class TariffPurchaseService
 
                 try {
                     $subscription = $this->subscriptionService->createFromTemplate(
-                        clientId:     $client->id,
-                        templateId:   $template->id,
-                        installLimit: $item->device_limit ?? 1,
-                        days:         $periodDays,
+                        clientId:       $client->id,
+                        templateId:     $template->id,
+                        installLimit:   $item->device_limit ?? 1,
+                        days:           $periodDays,
+                        clientTariffId: $clientTariff->id,
                     );
 
                     if (!$subscription) {

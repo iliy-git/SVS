@@ -167,6 +167,124 @@ new class extends Component {
             ]);
         }
     }
+    public $showTariffModal = false;
+    public $editingClientTariffId = null;
+    public $formTariffId = '';
+    public $formCustomPrice = '';
+    public $formExpiresAt = '';
+    public $formSelectedSubIds = [];
+
+    #[Computed]
+    public function availableTariffs()
+    {
+        return \App\Models\Tariff::where('is_active', true)->get();
+    }
+
+    public function openCreateTariffModal()
+    {
+        $this->editingClientTariffId = null;
+        $this->formTariffId = $this->availableTariffs->first()?->id ?? '';
+        $this->formCustomPrice = '';
+        $maxExp = $this->client->subscriptions->max('expires_at') ?? now()->addDays(30);
+        $this->formExpiresAt = $maxExp->format('Y-m-d');
+        $unassigned = $this->client->subscriptions->whereNull('client_tariff_id');
+        $toSelect = $unassigned->isNotEmpty() ? $unassigned : $this->client->subscriptions;
+        $this->formSelectedSubIds = $toSelect->pluck('id')->map(fn($id) => (string)$id)->toArray();
+        $this->showTariffModal = true;
+    }
+
+    public function openEditTariffModal($clientTariffId)
+    {
+        $ct = \App\Models\ClientTariff::with('subscriptions')->findOrFail($clientTariffId);
+        $this->editingClientTariffId = $ct->id;
+        $this->formTariffId = $ct->tariff_id;
+        $this->formCustomPrice = $ct->custom_price ?? '';
+        $this->formExpiresAt = $ct->expires_at ? $ct->expires_at->format('Y-m-d') : '';
+        $this->formSelectedSubIds = $ct->subscriptions->pluck('id')->map(fn($id) => (string)$id)->toArray();
+        $this->showTariffModal = true;
+    }
+
+    public function saveClientTariff()
+    {
+        $this->validate([
+            'formTariffId'    => 'required|exists:tariffs,id',
+            'formCustomPrice' => 'nullable|numeric|min:0',
+            'formExpiresAt'   => 'nullable|date',
+        ]);
+
+        $tariff = \App\Models\Tariff::findOrFail($this->formTariffId);
+        $expDate = $this->formExpiresAt ? \Carbon\Carbon::parse($this->formExpiresAt) : now()->addDays($tariff->duration_days ?: 30);
+        $price = ($this->formCustomPrice !== '' && $this->formCustomPrice !== null) ? (float)$this->formCustomPrice : null;
+
+        if ($this->editingClientTariffId) {
+            $clientTariff = \App\Models\ClientTariff::findOrFail($this->editingClientTariffId);
+            $clientTariff->update([
+                'tariff_id'    => $this->formTariffId,
+                'custom_price' => $price,
+                'expires_at'   => $expDate,
+            ]);
+
+            \App\Models\Subscription::where('client_tariff_id', $clientTariff->id)
+                ->whereNotIn('id', $this->formSelectedSubIds)
+                ->update(['client_tariff_id' => null]);
+        } else {
+            $clientTariff = \App\Models\ClientTariff::create([
+                'client_id'    => $this->clientId,
+                'tariff_id'    => $this->formTariffId,
+                'custom_price' => $price,
+                'expires_at'   => $expDate,
+            ]);
+        }
+
+        if (!empty($this->formSelectedSubIds)) {
+            \App\Models\Subscription::whereIn('id', $this->formSelectedSubIds)
+                ->update([
+                    'client_tariff_id' => $clientTariff->id,
+                    'expires_at'       => $expDate,
+                ]);
+        }
+
+        $this->showTariffModal = false;
+        unset($this->client);
+
+        $this->dispatch('notify', [
+            'message' => "Тариф «{$tariff->name}» успешно сохранен!",
+            'type'    => 'success'
+        ]);
+    }
+
+    public function deleteClientTariff($clientTariffId)
+    {
+        $ct = \App\Models\ClientTariff::findOrFail($clientTariffId);
+        $ct->delete();
+        unset($this->client);
+
+        $this->dispatch('notify', [
+            'message' => 'Тариф удален (подписки отвязаны)',
+            'type'    => 'info'
+        ]);
+    }
+
+    public function extendClientTariff($clientTariffId, $days = 30)
+    {
+        $ct = \App\Models\ClientTariff::with('subscriptions')->findOrFail($clientTariffId);
+        $baseDate = ($ct->expires_at && $ct->expires_at->isFuture()) ? $ct->expires_at : now();
+        $newExpiry = $baseDate->copy()->addDays($days);
+
+        $ct->update(['expires_at' => $newExpiry]);
+
+        foreach ($ct->subscriptions as $sub) {
+            app(SubscriptionService::class)->extendSubscription($sub->id, $days);
+            $sub->update(['expires_at' => $newExpiry]);
+        }
+
+        unset($this->client);
+
+        $this->dispatch('notify', [
+            'message' => "Тариф и все входящие подписки продлены на {$days} дн.!",
+            'type'    => 'success'
+        ]);
+    }
 }; ?>
 
 <div class="animate__animated animate__fadeIn">
@@ -279,6 +397,12 @@ new class extends Component {
         </div>
 
         <div class="d-flex align-items-center gap-2">
+            <!-- Кнопка 0: Сформировать тариф -->
+            <button wire:click="openCreateTariffModal"
+                    class="btn btn-warning fw-bold px-3 shadow-sm btn-press-animation text-dark">
+                <i class="bi bi-box-seam me-1"></i> Сформировать тариф
+            </button>
+
             <!-- Кнопка 1: Создать по умолчанию (быстрое действие) -->
             <button onclick="promptCreateDefault()"
                     wire:loading.attr="disabled"
@@ -322,6 +446,90 @@ new class extends Component {
             </a>
         </div>
     </div>
+
+    {{-- ТАРИФНЫЕ ПАКЕТЫ КЛИЕНТА --}}
+    @if($this->client->clientTariffs && $this->client->clientTariffs->count() > 0)
+        <div class="mb-4">
+            <h5 class="text-white fw-bold mb-3 d-flex align-items-center gap-2">
+                <i class="bi bi-collection-fill text-warning"></i>
+                Тарифные пакеты клиента
+                <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 rounded-pill fs-6 fw-normal">
+                    {{ $this->client->clientTariffs->count() }}
+                </span>
+            </h5>
+
+            <div class="row g-3">
+                @foreach($this->client->clientTariffs as $ct)
+                    <div class="col-md-6 col-xl-4" wire:key="ct-{{ $ct->id }}">
+                        <div class="card border-0 shadow-sm rounded-4 h-100" style="background: #1a1d21; border: 1px solid rgba(255,255,255,0.08) !important;">
+                            <div class="card-body p-4 text-white d-flex flex-column justify-content-between">
+                                <div>
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <h5 class="fw-bold mb-0 text-white">
+                                            {{ $ct->tariff?->name ?? 'Тариф #' . $ct->id }}
+                                        </h5>
+                                        <span class="badge {{ $ct->is_custom_price ? 'bg-warning bg-opacity-25 text-warning' : 'bg-primary bg-opacity-25 text-primary' }} border-0 px-2 py-1 rounded-2">
+                                            {{ (int)$ct->price }} ₽{{ $ct->is_custom_price ? ' (персон.)' : '' }}
+                                        </span>
+                                    </div>
+
+                                    @if($ct->tariff?->description)
+                                        <div class="text-muted small mb-2">{{ $ct->tariff->description }}</div>
+                                    @endif
+
+                                    <div class="d-flex align-items-center gap-2 small mb-3">
+                                        <i class="bi bi-calendar-event text-secondary"></i>
+                                        <span class="text-secondary">Срок:</span>
+                                        <span class="fw-bold {{ ($ct->expires_at && $ct->expires_at->isPast()) ? 'text-danger' : 'text-success' }}">
+                                            {{ $ct->expires_at ? $ct->expires_at->format('d.m.Y') : 'Бессрочно' }}
+                                        </span>
+                                        @if($ct->expires_at && $ct->expires_at->isFuture())
+                                            <span class="text-muted small">({{ (int)now()->diffInDays($ct->expires_at, false) }} дн.)</span>
+                                        @endif
+                                    </div>
+
+                                    <div class="border-top border-white border-opacity-5 pt-2 mb-3">
+                                        <div class="small text-muted mb-1 text-uppercase fw-bold" style="font-size: 11px;">Входящие подписки ({{ $ct->subscriptions->count() }}):</div>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            @forelse($ct->subscriptions as $s)
+                                                <span class="badge bg-dark border border-white border-opacity-10 text-white rounded-pill px-2 py-1" style="font-size: 11px;">
+                                                    <i class="bi bi-key-fill text-primary me-1"></i>{{ $s->name }} ({{ $s->install_limit }} устр.)
+                                                </span>
+                                            @empty
+                                                <span class="text-muted small fst-italic">Подписки не прикреплены</span>
+                                            @endforelse
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="d-flex justify-content-between align-items-center border-top border-white border-opacity-5 pt-3">
+                                    <button wire:click="extendClientTariff({{ $ct->id }}, 30)"
+                                            class="btn btn-sm btn-outline-success rounded-3 fw-bold"
+                                            title="Продлить тариф и все подписки на 30 дней">
+                                        <i class="bi bi-arrow-repeat me-1"></i> +30 дней
+                                    </button>
+
+                                    <div class="btn-group gap-1">
+                                        <button wire:click="openEditTariffModal({{ $ct->id }})"
+                                                class="btn btn-sm btn-dark border-0 rounded-2"
+                                                title="Редактировать состав тарифа">
+                                            <i class="bi bi-pencil-square text-primary"></i>
+                                        </button>
+                                        <button wire:click="deleteClientTariff({{ $ct->id }})"
+                                                wire:confirm="Удалить этот тариф клиента? Подписки не будут удалены, только отвязаны."
+                                                class="btn btn-sm btn-dark border-0 rounded-2"
+                                                title="Удалить тариф">
+                                            <i class="bi bi-trash3 text-danger"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    @endif
 
     <div class="row g-3">
         @forelse($this->client->subscriptions as $subscription)
@@ -409,6 +617,17 @@ new class extends Component {
                                 <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle rounded-pill"
                                       title="Создано по шаблону «{{ $subscription->template->name }}»">
                                     <i class="bi bi-file-earmark-check me-1"></i>{{ $subscription->template->name }}
+                                </span>
+                            @endif
+                            @if($subscription->clientTariff)
+                                <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle rounded-pill"
+                                      title="Входит в тариф «{{ $subscription->clientTariff->tariff?->name }}»">
+                                    <i class="bi bi-box-seam me-1"></i>{{ $subscription->clientTariff->tariff?->name }}
+                                </span>
+                            @else
+                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle rounded-pill"
+                                      title="Не привязана к тарифу">
+                                    <i class="bi bi-dash-circle me-1"></i>Без тарифа
                                 </span>
                             @endif
                         </div>
@@ -517,4 +736,92 @@ new class extends Component {
             }
         }
     </script>
+
+    {{-- МОДАЛЬНОЕ ОКНО: СФОРМИРОВАТЬ ТАРИФ --}}
+    @if($showTariffModal)
+        <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px); z-index: 9999;">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden" style="background: #1a1d21; border: 1px solid rgba(255,255,255,0.1) !important;">
+                    <div class="modal-header border-0 p-4 pb-2">
+                        <h5 class="modal-title fw-bold text-white">
+                            <i class="bi bi-box-seam text-warning me-2"></i>
+                            {{ $editingClientTariffId ? 'Редактировать тариф клиента' : 'Сформировать тариф для клиента' }}
+                        </h5>
+                        <button type="button" wire:click="$set('showTariffModal', false)" class="btn-close btn-close-white shadow-none"></button>
+                    </div>
+
+                    <form wire:submit.prevent="saveClientTariff">
+                        <div class="modal-body p-4 text-white">
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold text-secondary text-uppercase">Выберите тариф</label>
+                                <select wire:model.live="formTariffId" class="form-select bg-dark border-0 text-white py-2 shadow-none custom-input">
+                                    <option value="">-- Выберите тариф --</option>
+                                    @foreach($this->availableTariffs as $t)
+                                        <option value="{{ $t->id }}">
+                                            {{ $t->name }} ({{ (int)$t->price }} ₽ / {{ $t->duration_days }} дн.) {{ !$t->is_public ? '[Скрытый]' : '' }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                                @error('formTariffId') <small class="text-danger mt-1 d-block">{{ $message }}</small> @enderror
+                            </div>
+
+                            <div class="row mb-3">
+                                <div class="col-6">
+                                    <label class="form-label small fw-bold text-secondary text-uppercase">Персональная цена (₽)</label>
+                                    <input type="number" step="0.01" min="0" wire:model="formCustomPrice"
+                                           class="form-control bg-dark border-0 text-white py-2 shadow-none custom-input"
+                                           placeholder="По тарифу">
+                                    <div class="form-text text-muted" style="font-size: 11px;">Пусто = цена тарифа</div>
+                                    @error('formCustomPrice') <small class="text-danger mt-1 d-block">{{ $message }}</small> @enderror
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small fw-bold text-secondary text-uppercase">Срок действия</label>
+                                    <input type="date" wire:model="formExpiresAt"
+                                           class="form-control bg-dark border-0 text-white py-2 shadow-none custom-input"
+                                           style="color-scheme: dark;">
+                                    @error('formExpiresAt') <small class="text-danger mt-1 d-block">{{ $message }}</small> @enderror
+                                </div>
+                            </div>
+
+                            <div class="mb-2">
+                                <label class="form-label small fw-bold text-secondary text-uppercase mb-2">
+                                    Входящие подписки (отметьте нужные)
+                                </label>
+                                <div class="bg-dark rounded-3 p-3 border border-white border-opacity-5" style="max-height: 220px; overflow-y: auto;">
+                                    @forelse($this->client->subscriptions as $sub)
+                                        <div class="form-check mb-2 d-flex align-items-center justify-content-between" wire:key="f-sub-{{ $sub->id }}">
+                                            <div>
+                                                <input class="form-check-input" type="checkbox"
+                                                       value="{{ $sub->id }}"
+                                                       wire:model="formSelectedSubIds"
+                                                       id="subCheck{{ $sub->id }}">
+                                                <label class="form-check-label ms-2 text-white small" for="subCheck{{ $sub->id }}">
+                                                    <strong>{{ $sub->name }}</strong>
+                                                    <span class="text-muted">({{ $sub->install_limit }} устр.)</span>
+                                                </label>
+                                            </div>
+                                            @if($sub->client_tariff_id && $sub->client_tariff_id != $editingClientTariffId)
+                                                <span class="badge bg-secondary bg-opacity-25 text-muted" style="font-size: 10px;">В др. тарифе</span>
+                                            @endif
+                                        </div>
+                                    @empty
+                                        <div class="text-muted small">У клиента нет подписок для добавления</div>
+                                    @endforelse
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="modal-footer border-0 p-4 pt-0 d-flex justify-content-between">
+                            <button type="button" wire:click="$set('showTariffModal', false)" class="btn btn-outline-secondary px-4 border-0">
+                                Отмена
+                            </button>
+                            <button type="submit" class="btn btn-warning px-4 fw-bold text-dark">
+                                <i class="bi bi-check-lg me-1"></i> Сохранить тариф
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>

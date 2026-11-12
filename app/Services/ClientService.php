@@ -89,7 +89,12 @@ class ClientService
     public function findWithSubscriptions(int $id): Client
     {
         return Client::query()
-            ->with(['subscriptions.template'])
+            ->with([
+                'clientTariffs.tariff',
+                'clientTariffs.subscriptions',
+                'subscriptions.template',
+                'subscriptions.clientTariff.tariff',
+            ])
             ->findOrFail($id);
     }
     /**

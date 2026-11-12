@@ -20,6 +20,11 @@ class Client extends Model
         return $this->belongsToMany(Subscription::class, 'client_subscription');
     }
 
+    public function clientTariffs(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(ClientTariff::class);
+    }
+
     public function scopeSearch(Builder $query, string $search = ''): Builder
     {
         if (empty($search)) {

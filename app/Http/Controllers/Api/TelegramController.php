@@ -16,12 +16,14 @@ class TelegramController extends Controller
 {
     public function getSubscriptions(int $telegramId): JsonResponse
     {
-        // Ищем клиента и сразу загружаем его подписки (и при необходимости конфиги)
+        // Ищем клиента и сразу загружаем его тарифы и подписки
         $client = Client::where('telegram_id', $telegramId)
-            ->with(['subscriptions' => function ($query) {
-                // Если нужно підгрузить конфиги каждой подписки:
-                // $query->with('configs');
-            }])
+            ->with([
+                'clientTariffs.tariff',
+                'clientTariffs.subscriptions.template',
+                'subscriptions.clientTariff.tariff',
+                'subscriptions.template',
+            ])
             ->first();
 
         if (!$client) {
@@ -30,14 +32,60 @@ class TelegramController extends Controller
                 'message' => 'Клиент с таким Telegram ID не найден'
             ], 404);
         }
-//        $client->subscriptions->makeHidden(['token']);
+
+        $formattedClientTariffs = $client->clientTariffs->map(function ($ct) {
+            return [
+                'id'              => $ct->id,
+                'tariff_id'       => $ct->tariff_id,
+                'name'            => $ct->tariff?->name ?? 'Тариф #' . $ct->id,
+                'description'     => $ct->tariff?->description,
+                'price_rub'       => (int) $ct->price,
+                'price_usdt'      => round($ct->price / 100, 2),
+                'is_custom_price' => $ct->is_custom_price,
+                'expires_at'      => $ct->expires_at?->toIso8601String(),
+                'days_left'       => $ct->expires_at ? max(0, (int) now()->diffInDays($ct->expires_at, false)) : null,
+                'subscriptions'   => $ct->subscriptions->map(function ($s) {
+                    return [
+                        'id'            => $s->id,
+                        'name'          => $s->name,
+                        'token'         => $s->token,
+                        'install_limit' => $s->install_limit,
+                        'happ_url'      => $s->happ_url,
+                        'expires_at'    => $s->expires_at?->toIso8601String(),
+                        'template_name' => $s->template?->name,
+                    ];
+                }),
+            ];
+        });
+
+        $formattedSubscriptions = $client->subscriptions->map(function ($s) {
+            return [
+                'id'                => $s->id,
+                'client_id'         => $s->client_id,
+                'name'              => $s->name,
+                'token'             => $s->token,
+                'install_limit'     => $s->install_limit,
+                'client_tariff_id'  => $s->client_tariff_id,
+                'tariff_name'       => $s->clientTariff?->tariff?->name,
+                'tariff_price_rub'  => $s->clientTariff ? (int) $s->clientTariff->price : null,
+                'tariff_price_usdt' => $s->clientTariff ? round($s->clientTariff->price / 100, 2) : null,
+                'tariff_expires_at' => $s->clientTariff?->expires_at?->toIso8601String(),
+                'happ_url'          => $s->happ_url,
+                'expires_at'        => $s->expires_at?->toIso8601String(),
+                'template_name'     => $s->template?->name,
+                'status'            => $s->status,
+                'created_at'        => $s->created_at?->toIso8601String(),
+            ];
+        });
+
         return response()->json([
             'success' => true,
             'data' => [
-                'client_id' => $client->id,
-                'name' => $client->name,
-                'telegram_id' => $client->telegram_id,
-                'subscriptions' => $client->subscriptions
+                'client_id'     => $client->id,
+                'name'          => $client->name,
+                'telegram_id'   => $client->telegram_id,
+                'tariffs'       => $formattedClientTariffs,
+                'subscriptions' => $formattedSubscriptions,
             ]
         ], 200);
     }
@@ -103,8 +151,8 @@ class TelegramController extends Controller
      */
     public function getTariffs(): JsonResponse
     {
-        // Достаем активные тарифы, жадно грузим items, чтобы посчитать устройства/подписки
-        $tariffs = Tariff::with('items')->where('is_active', true)->get();
+        // Достаем активные и только публичные тарифы для витрины бота
+        $tariffs = Tariff::public()->with('items')->get();
 
         $formattedTariffs = $tariffs->map(function ($tariff) {
             // Считаем общее количество "подписок" или "устройств" в тарифе,
@@ -203,6 +251,12 @@ class TelegramController extends Controller
         if ($success) {
             $subscription = Subscription::find($id);
 
+            if ($subscription->client_tariff_id) {
+                $subscription->clientTariff?->update([
+                    'expires_at' => $subscription->expires_at,
+                ]);
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => "Подписка успешно продлена на {$days} дн.",
@@ -217,5 +271,60 @@ class TelegramController extends Controller
             'success' => false,
             'message' => 'Не удалось продлить конфиги на нодах'
         ], 500);
+    }
+
+    /**
+     * Продление тарифа клиента целиком (продлеваются все входящие в него подписки)
+     */
+    public function extendTariff(Request $request, int $id, SubscriptionService $subscriptionService): JsonResponse
+    {
+        $validated = $request->validate([
+            'telegram_id' => 'required',
+            'days'        => 'nullable|integer',
+        ]);
+
+        $telegramId = (string) $validated['telegram_id'];
+        $days = (int) ($validated['days'] ?? 30);
+
+        $client = Client::where('telegram_id', $telegramId)->first();
+        if (!$client) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Клиент с таким Telegram ID не найден'
+            ], 404);
+        }
+
+        $clientTariff = $client->clientTariffs()->with(['tariff', 'subscriptions'])->find($id);
+        if (!$clientTariff) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Тариф не найден у данного клиента'
+            ], 404);
+        }
+
+        $baseDate = ($clientTariff->expires_at && $clientTariff->expires_at->isFuture())
+            ? $clientTariff->expires_at
+            : now();
+        $newExpiry = $baseDate->copy()->addDays($days);
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($clientTariff, $subscriptionService, $days, $newExpiry) {
+            $clientTariff->update(['expires_at' => $newExpiry]);
+
+            foreach ($clientTariff->subscriptions as $sub) {
+                $subscriptionService->extendSubscription($sub->id, $days);
+                $sub->update(['expires_at' => $newExpiry]);
+            }
+        });
+
+        $clientTariff->refresh();
+
+        return response()->json([
+            'success' => true,
+            'message' => "Тариф «{$clientTariff->tariff?->name}» успешно продлен на {$days} дн.",
+            'data'    => [
+                'client_tariff_id' => $clientTariff->id,
+                'expires_at'       => $clientTariff->expires_at?->toIso8601String(),
+            ]
+        ], 200);
     }
 }

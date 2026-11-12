@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 
 new class extends Component {
     public $tariffId;
-    public $name, $description, $price, $duration_days, $is_active;
+    public $name, $description, $price, $duration_days, $is_active, $is_public;
     
     public $items = [];
     public $availableTemplates = [];
@@ -22,6 +22,7 @@ new class extends Component {
         $this->price = $tariff->price;
         $this->duration_days = $tariff->duration_days;
         $this->is_active = $tariff->is_active;
+        $this->is_public = (bool) ($tariff->is_public ?? true);
 
         foreach ($tariff->items as $item) {
             $this->items[] = [
@@ -69,6 +70,7 @@ new class extends Component {
                 'price' => $this->price,
                 'duration_days' => $this->duration_days,
                 'is_active' => $this->is_active,
+                'is_public' => $this->is_public,
             ]);
 
             // Простейший способ синхронизации: удаляем старые, пишем новые
@@ -105,9 +107,15 @@ new class extends Component {
                         </div>
                         <div class="col-md-4">
                             <label class="form-label small fw-bold text-secondary text-uppercase">Статус</label>
-                            <div class="form-check form-switch mt-2">
-                                <input class="form-check-input shadow-none" type="checkbox" wire:model="is_active" id="isActiveEdit" style="transform: scale(1.3); margin-left: -2em;">
-                                <label class="form-check-label ms-2 mt-1" for="isActiveEdit">Активен</label>
+                            <div class="d-flex flex-column gap-2 mt-1">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input shadow-none" type="checkbox" wire:model="is_active" id="isActiveEdit">
+                                    <label class="form-check-label ms-1" for="isActiveEdit">Активен</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input shadow-none" type="checkbox" wire:model="is_public" id="isPublicEdit">
+                                    <label class="form-check-label ms-1" for="isPublicEdit">Публичный (в боте)</label>
+                                </div>
                             </div>
                         </div>
                         

@@ -17,6 +17,7 @@ class Subscription extends Model
         'happ_install_code',
         'install_limit',
         'template_id',
+        'client_tariff_id',
     ];
 
     protected $casts = [
@@ -27,6 +28,11 @@ class Subscription extends Model
     public function template(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
         return $this->belongsTo(SubscriptionTemplate::class, 'template_id');
+    }
+
+    public function clientTariff(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(ClientTariff::class, 'client_tariff_id');
     }
 
     public function configs(): BelongsToMany

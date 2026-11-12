@@ -48,6 +48,8 @@ class SubscriptionService
             'with_balancer' => 'boolean',
             'expires_at'    => 'nullable|date',
             'install_limit' => 'required|integer|min:1|max:100',
+            'tariff_id'     => 'nullable|exists:tariffs,id',
+            'custom_price'  => 'nullable|numeric|min:0',
             'clientId'      => 'nullable',
             'subId'         => 'nullable',
         ];
@@ -91,6 +93,8 @@ class SubscriptionService
             'with_balancer' => $data['with_balancer'] ?? true,
             'expires_at'    => $data['expires_at'] ?: null,
             'install_limit' => $data['install_limit'] ?? 1,
+            'tariff_id'     => !empty($data['tariff_id']) ? (int) $data['tariff_id'] : null,
+            'custom_price'  => isset($data['custom_price']) && $data['custom_price'] !== '' ? $data['custom_price'] : null,
         ]);
 
         $happUrl = $this->happApi->generateLink($subscription);
@@ -120,6 +124,8 @@ class SubscriptionService
             'with_balancer' => $data['with_balancer'] ?? true,
             'expires_at'    => $data['expires_at'] ?: null,
             'install_limit' => $data['install_limit'] ?? 1,
+            'tariff_id'     => !empty($data['tariff_id']) ? (int) $data['tariff_id'] : null,
+            'custom_price'  => isset($data['custom_price']) && $data['custom_price'] !== '' ? $data['custom_price'] : null,
         ]);
 
         // Пересоздаем ссылку, если токен изменился
@@ -148,6 +154,8 @@ class SubscriptionService
             'with_balancer' => (bool)$sub->with_balancer,
             'expires_at'    => $sub->expires_at ? $sub->expires_at->format('Y-m-d') : '',
             'install_limit' => (int)($sub->install_limit ?? 1),
+            'tariff_id'     => $sub->tariff_id,
+            'custom_price'  => $sub->custom_price,
         ];
     }
 
@@ -320,7 +328,13 @@ class SubscriptionService
     /**
      * Создание подписки по шаблону с созданием конфигов на нодах.
      */
-    public function createFromTemplate(int $clientId, int $templateId, int $installLimit = 1, int $days = 30): ?Subscription
+    public function createFromTemplate(
+        int $clientId,
+        int $templateId,
+        int $installLimit = 1,
+        int $days = 30,
+        ?int $clientTariffId = null
+    ): ?Subscription
     {
         $template = SubscriptionTemplate::with(['inbounds.node.flag'])->find($templateId);
 
@@ -328,15 +342,16 @@ class SubscriptionService
             return null;
         }
 
-        return DB::transaction(function () use ($clientId, $template, $installLimit, $days) {
+        return DB::transaction(function () use ($clientId, $template, $installLimit, $days, $clientTariffId) {
             // 1. Создаем подписку
             $subscription = Subscription::create([
-                'template_id'   => $template->id,
-                'name'          => $template->name,
-                'token'         => Str::random(32),
-                'expires_at'    => now()->addDays($days),
-                'with_balancer' => 1,
-                'install_limit' => $installLimit,
+                'template_id'      => $template->id,
+                'client_tariff_id' => $clientTariffId,
+                'name'             => $template->name,
+                'token'            => Str::random(32),
+                'expires_at'       => now()->addDays($days),
+                'with_balancer'    => 1,
+                'install_limit'    => $installLimit,
             ]);
 
             // 2. Привязываем подписку к клиенту

@@ -37,6 +37,12 @@ new class extends Component {
         $tariff = Tariff::findOrFail($id);
         $tariff->update(['is_active' => !$tariff->is_active]);
     }
+
+    public function togglePublic($id)
+    {
+        $tariff = Tariff::findOrFail($id);
+        $tariff->update(['is_public' => !$tariff->is_public]);
+    }
 }; ?>
 
 <div class="animate__animated animate__fadeIn">
@@ -106,12 +112,20 @@ new class extends Component {
                             <td><span class="badge bg-secondary bg-opacity-25 text-white border border-secondary border-opacity-25">{{ $tariff->duration_days }} дней</span></td>
                             <td><span class="text-muted small"><i class="bi bi-layers me-1"></i>{{ $tariff->items_count }} шаблонов</span></td>
                             <td>
-                                <button wire:click="toggleActive({{ $tariff->id }})" class="btn btn-sm p-0 border-0 shadow-none">
-                                    <span class="{{ $tariff->is_active ? 'text-success-bright' : 'text-danger' }} small fw-bold d-flex align-items-center">
-                                        <span class="me-2" style="width: 8px; height: 8px; background: {{ $tariff->is_active ? '#22c55e' : '#ef4444' }}; border-radius: 50%;"></span>
-                                        {{ $tariff->is_active ? 'АКТИВЕН' : 'ОТКЛЮЧЕН' }}
-                                    </span>
-                                </button>
+                                <div class="d-flex flex-column gap-1">
+                                    <button wire:click="toggleActive({{ $tariff->id }})" class="btn btn-sm p-0 border-0 shadow-none text-start">
+                                        <span class="{{ $tariff->is_active ? 'text-success' : 'text-danger' }} small fw-bold d-flex align-items-center">
+                                            <span class="me-2" style="width: 8px; height: 8px; background: {{ $tariff->is_active ? '#22c55e' : '#ef4444' }}; border-radius: 50%;"></span>
+                                            {{ $tariff->is_active ? 'АКТИВЕН' : 'ОТКЛЮЧЕН' }}
+                                        </span>
+                                    </button>
+                                    <button wire:click="togglePublic({{ $tariff->id }})" class="btn btn-sm p-0 border-0 shadow-none text-start">
+                                        <span class="{{ $tariff->is_public ? 'text-info' : 'text-secondary' }} small d-flex align-items-center" style="font-size: 11px;">
+                                            <i class="bi {{ $tariff->is_public ? 'bi-globe2' : 'bi-eye-slash' }} me-1"></i>
+                                            {{ $tariff->is_public ? 'В боте' : 'Скрыт' }}
+                                        </span>
+                                    </button>
+                                </div>
                             </td>
                             <td class="text-end pe-4">
                                 <div class="btn-group gap-1">

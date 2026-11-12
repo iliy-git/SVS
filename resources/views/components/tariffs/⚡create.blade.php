@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 new class extends Component {
     public $name, $description, $price = 0, $duration_days = 30;
     public $is_active = true;
+    public $is_public = true;
     
     // Динамический массив для шаблонов внутри тарифа
     public $items = [];
@@ -50,6 +51,7 @@ new class extends Component {
                 'price' => $this->price,
                 'duration_days' => $this->duration_days,
                 'is_active' => $this->is_active,
+                'is_public' => $this->is_public,
             ]);
 
             foreach ($this->items as $item) {
@@ -83,9 +85,15 @@ new class extends Component {
                         </div>
                         <div class="col-md-4">
                             <label class="form-label small fw-bold text-secondary text-uppercase">Статус</label>
-                            <div class="form-check form-switch mt-2">
-                                <input class="form-check-input shadow-none" type="checkbox" wire:model="is_active" id="isActive" style="transform: scale(1.3); margin-left: -2em;">
-                                <label class="form-check-label ms-2 mt-1" for="isActive">Активен</label>
+                            <div class="d-flex flex-column gap-2 mt-1">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input shadow-none" type="checkbox" wire:model="is_active" id="isActive">
+                                    <label class="form-check-label ms-1" for="isActive">Активен</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input shadow-none" type="checkbox" wire:model="is_public" id="isPublic">
+                                    <label class="form-check-label ms-1" for="isPublic">Публичный (в боте)</label>
+                                </div>
                             </div>
                         </div>
                         
