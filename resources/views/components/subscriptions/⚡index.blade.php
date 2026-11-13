@@ -287,6 +287,75 @@ new class extends Component {
             'type'    => 'success'
         ]);
     }
+
+    public $showTransferModal = false;
+    public $transferSubId = null;
+    public $transferTargetClientId = '';
+    public $transferSearch = '';
+
+    #[Computed]
+    public function transferCandidates()
+    {
+        $query = \App\Models\Client::where('id', '!=', $this->clientId)
+            ->withCount('subscriptions');
+
+        if (!empty($this->transferSearch)) {
+            $search = '%' . trim($this->transferSearch) . '%';
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', $search)
+                  ->orWhere('telegram_id', 'like', $search)
+                  ->orWhere('phone', 'like', $search);
+            });
+        }
+
+        return $query->orderBy('name')->take(30)->get();
+    }
+
+    #[Computed]
+    public function transferSubscriptionModel()
+    {
+        if (!$this->transferSubId) {
+            return null;
+        }
+        return \App\Models\Subscription::with('clientTariff.tariff')->find($this->transferSubId);
+    }
+
+    public function openTransferModal($subscriptionId)
+    {
+        $this->transferSubId = $subscriptionId;
+        $this->transferTargetClientId = '';
+        $this->transferSearch = '';
+        $this->showTransferModal = true;
+    }
+
+    public function transferSubscription()
+    {
+        $this->validate([
+            'transferSubId'          => 'required|exists:subscriptions,id',
+            'transferTargetClientId' => 'required|exists:clients,id|different:clientId',
+        ], [
+            'transferTargetClientId.required'  => 'Выберите нового владельца для подписки',
+            'transferTargetClientId.different' => 'Нельзя передать подписку тому же клиенту',
+        ]);
+
+        $sub = \App\Models\Subscription::findOrFail($this->transferSubId);
+        $targetClient = \App\Models\Client::findOrFail($this->transferTargetClientId);
+
+        app(\App\Services\SubscriptionService::class)->transferSubscription(
+            $this->transferSubId,
+            (int) $this->transferTargetClientId
+        );
+
+        $this->showTransferModal = false;
+        unset($this->client);
+        unset($this->transferCandidates);
+        unset($this->transferSubscriptionModel);
+
+        $this->dispatch('notify', [
+            'message' => "Подписка «{$sub->name}» успешно передана клиенту «{$targetClient->name}»!",
+            'type'    => 'success'
+        ]);
+    }
 }; ?>
 
 <div class="animate__animated animate__fadeIn">
@@ -600,6 +669,11 @@ new class extends Component {
                                     </button>
 
                                     <button class="dropdown-item text-warning"
+                                            wire:click="openTransferModal({{ $subscription->id }}); open = false">
+                                        <i class="bi bi-arrow-left-right me-2 text-warning"></i> Передать клиенту
+                                    </button>
+
+                                    <button class="dropdown-item text-warning"
                                             wire:click="resetDevices({{ $subscription->id }})"
                                             wire:confirm="Обнулить привязку устройства для этой подписки?">
                                         <i class="bi bi-device-hdd-fill me-2 text-warning"></i> Сбросить устройство
@@ -819,6 +893,106 @@ new class extends Component {
                             </button>
                             <button type="submit" class="btn btn-warning px-4 fw-bold text-dark">
                                 <i class="bi bi-check-lg me-1"></i> Сохранить тариф
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- МОДАЛЬНОЕ ОКНО: ПЕРЕДАТЬ ПОДПИСКУ ДРУГОМУ КЛИЕНТУ --}}
+    @if($showTransferModal && $this->transferSubscriptionModel)
+        <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px); z-index: 9999;">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden" style="background: #1a1d21; border: 1px solid rgba(255,255,255,0.1) !important;">
+                    <div class="modal-header border-0 p-4 pb-2">
+                        <h5 class="modal-title fw-bold text-white d-flex align-items-center gap-2">
+                            <i class="bi bi-arrow-left-right text-warning"></i>
+                            Передача подписки клиенту
+                        </h5>
+                        <button type="button" wire:click="$set('showTransferModal', false)" class="btn-close btn-close-white shadow-none"></button>
+                    </div>
+
+                    <form wire:submit.prevent="transferSubscription">
+                        <div class="modal-body p-4 text-white">
+                            <!-- Карточка передаваемой подписки -->
+                            <div class="p-3 rounded-3 mb-3" style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="fw-bold text-white">{{ $this->transferSubscriptionModel->name }}</span>
+                                    <span class="badge bg-primary bg-opacity-25 text-primary border-0">#{{ $this->transferSubscriptionModel->id }}</span>
+                                </div>
+                                <div class="small text-muted d-flex gap-3">
+                                    <span><i class="bi bi-phone me-1"></i>{{ $this->transferSubscriptionModel->install_limit }} устр.</span>
+                                    <span><i class="bi bi-calendar-event me-1"></i>{{ $this->transferSubscriptionModel->expires_at ? $this->transferSubscriptionModel->expires_at->format('d.m.Y') : 'Бессрочно' }}</span>
+                                </div>
+                                @if($this->transferSubscriptionModel->clientTariff)
+                                    <div class="mt-2 text-warning small" style="font-size: 11px;">
+                                        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                        Входит в тариф «{{ $this->transferSubscriptionModel->clientTariff->tariff?->name }}». При передаче подписка будет отвязана от этого тарифа.
+                                    </div>
+                                @endif
+                            </div>
+
+                            <!-- Поиск клиента -->
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold text-secondary text-uppercase">Поиск нового владельца</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-dark border-0 text-secondary">
+                                        <i class="bi bi-search"></i>
+                                    </span>
+                                    <input type="text"
+                                           wire:model.live.debounce.250ms="transferSearch"
+                                           class="form-control bg-dark border-0 text-white py-2 shadow-none custom-input"
+                                           placeholder="Имя, Telegram ID или телефон...">
+                                </div>
+                            </div>
+
+                            <!-- Список кандидатов -->
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold text-secondary text-uppercase">
+                                    Выберите получателя ({{ $this->transferCandidates->count() }})
+                                </label>
+                                <div class="list-group custom-dark-list overflow-auto" style="max-height: 220px;">
+                                    @forelse($this->transferCandidates as $candidate)
+                                        <label class="list-group-item list-group-item-action bg-dark border-0 text-white d-flex justify-content-between align-items-center p-2 px-3 rounded-3 mb-1 cursor-pointer {{ $transferTargetClientId == $candidate->id ? 'border border-warning border-opacity-50 bg-secondary bg-opacity-25' : '' }}">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <input class="form-check-input mt-0"
+                                                       type="radio"
+                                                       wire:model.live="transferTargetClientId"
+                                                       value="{{ $candidate->id }}">
+                                                <div>
+                                                    <div class="fw-bold">{{ $candidate->name }}</div>
+                                                    <div class="small text-muted" style="font-size: 11px;">
+                                                        @if($candidate->telegram_id) TG: {{ $candidate->telegram_id }} @endif
+                                                        @if($candidate->phone) • {{ $candidate->phone }} @endif
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <span class="badge bg-secondary bg-opacity-25 text-muted" style="font-size: 11px;">
+                                                {{ $candidate->subscriptions_count }} подп.
+                                            </span>
+                                        </label>
+                                    @empty
+                                        <div class="text-muted small text-center py-3">
+                                            Клиенты не найдены
+                                        </div>
+                                    @endforelse
+                                </div>
+                                @error('transferTargetClientId')
+                                    <small class="text-danger mt-1 d-block">{{ $message }}</small>
+                                @enderror
+                            </div>
+                        </div>
+
+                        <div class="modal-footer border-0 p-4 pt-0 d-flex justify-content-between">
+                            <button type="button" wire:click="$set('showTransferModal', false)" class="btn btn-outline-secondary px-4 border-0">
+                                Отмена
+                            </button>
+                            <button type="submit"
+                                    class="btn btn-warning px-4 fw-bold text-dark"
+                                    @if(!$transferTargetClientId) disabled @endif>
+                                <i class="bi bi-arrow-left-right me-1"></i> Передать подписку
                             </button>
                         </div>
                     </form>

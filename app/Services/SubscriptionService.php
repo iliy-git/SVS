@@ -321,6 +321,29 @@ class SubscriptionService
 
         return true;
     }
+
+    /**
+     * Передача подписки другому клиенту.
+     */
+    public function transferSubscription(int $subscriptionId, int $targetClientId): bool
+    {
+        $subscription = Subscription::with(['clients', 'clientTariff'])->findOrFail($subscriptionId);
+        $targetClient = \App\Models\Client::findOrFail($targetClientId);
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($subscription, $targetClient) {
+            // Перепривязываем владельца в pivot-таблице
+            $subscription->clients()->sync([$targetClient->id]);
+
+            // Если подписка была привязана к тарифу предыдущего клиента — отвязываем от него
+            if ($subscription->client_tariff_id) {
+                $subscription->update([
+                    'client_tariff_id' => null,
+                ]);
+            }
+        });
+
+        return true;
+    }
     /**
      * Проверяет наличие активной редакции ссылки у инбаунда (поддерживает как новый формат с params, так и legacy плоский).
      */
