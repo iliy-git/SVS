@@ -564,7 +564,7 @@ new class extends Component {
                                         <div class="d-flex flex-wrap gap-1">
                                             @forelse($ct->subscriptions as $s)
                                                 <span class="badge bg-dark border border-white border-opacity-10 text-white rounded-pill px-2 py-1" style="font-size: 11px;">
-                                                    <i class="bi bi-key-fill text-primary me-1"></i>{{ $s->name }} ({{ $s->install_limit }} устр.)
+                                                    <i class="bi bi-key-fill text-primary me-1"></i>#{{ $s->id }} {{ $s->name }} ({{ $s->install_limit }} устр.)
                                                 </span>
                                             @empty
                                                 <span class="text-muted small fst-italic">Подписки не прикреплены</span>
@@ -872,7 +872,7 @@ new class extends Component {
                                                        wire:model="formSelectedSubIds"
                                                        id="subCheck{{ $sub->id }}">
                                                 <label class="form-check-label ms-2 text-white small" for="subCheck{{ $sub->id }}">
-                                                    <strong>{{ $sub->name }}</strong>
+                                                    <strong>#{{ $sub->id }} {{ $sub->name }}</strong>
                                                     <span class="text-muted">({{ $sub->install_limit }} устр.)</span>
                                                 </label>
                                             </div>
