@@ -81,6 +81,32 @@ class XrayProfileBuilder
 🚀 МЫ ОПЕРАТИВНО ПОМОЖЕМ ВАМ!
 ");
 
+        // Если осталось 2 дня и меньше до окончания подписки
+        if ($sub->expires_at && $sub->expires_at->isFuture()) {
+            $diffSeconds = $sub->expires_at->timestamp - now()->timestamp;
+            $diffDays = (int) ceil($diffSeconds / 86400);
+
+            if ($diffDays <= 2 && $diffSeconds > 0) {
+                $dummyOutbound = $this->getDummyOutbound("expiry-warning");
+                $hoursLeft = (int) ($diffSeconds / 3600);
+
+                if ($diffDays === 2) {
+                    $timeText = "через 2 дня";
+                } elseif ($hoursLeft > 12) {
+                    $timeText = "через 1 день";
+                } elseif ($hoursLeft >= 1) {
+                    $timeText = "через {$hoursLeft} ч.";
+                } else {
+                    $timeText = "сегодня";
+                }
+
+                $warningTitle = "⚠️ Подписка #{$sub->id} заканчивается {$timeText}";
+                $warningConfig = $this->generateFullConfig($warningTitle, [$dummyOutbound], $sub->name);
+                array_unshift($nodes, $warningConfig);
+
+            }
+        }
+
         return [
             'nodes' => $nodes,
             'headers' => $this->buildHeaders($sub, $sub->name, $totalUpBytes, $totalDownBytes, $totalLimitBytes, $infoText)
@@ -122,12 +148,12 @@ class XrayProfileBuilder
         $dummyOutbound = $this->getDummyOutbound("expired-proxy");
 
         $nodes = [
-            $this->generateFullConfig("🛑 ПОДПИСКА ИСТЕКЛА", [$dummyOutbound], $sub->name),
-            $this->generateFullConfig("ОПЛАТИТЕ ПРОДЛЕНИЕ", [$dummyOutbound], $sub->name)
+            $this->generateFullConfig("🛑 ПОДПИСКА #{$sub->id} ИСТЕКЛА", [$dummyOutbound], $sub->name),
+            $this->generateFullConfig("💳 ОПЛАТИТЕ ПРОДЛЕНИЕ В БОТЕ", [$dummyOutbound], $sub->name)
         ];
 
         $infoText = trim("
-🛑 ВАША ПОДПИСКА ИСТЕКЛА
+🛑 ВАША ПОДПИСКА #{$sub->id} ИСТЕКЛА
 ━━━━━━━━━━━━━━━━━
 Пожалуйста, перейдите в Telegram бота
 и оплатите продление тарифа.
@@ -136,7 +162,7 @@ class XrayProfileBuilder
         // Устанавливаем expire = 1 (в прошлом), чтобы клиент сразу показал просрочку
         return [
             'nodes' => $nodes,
-            'headers' => $this->buildHeaders($sub, "ПОДПИСКА ИСТЕКЛА", 0, 0, 1, $infoText, 1)
+            'headers' => $this->buildHeaders($sub, "ПОДПИСКА #{$sub->id} ИСТЕКЛА", 0, 0, 1, $infoText, 1)
         ];
     }
 

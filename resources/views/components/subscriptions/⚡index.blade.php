@@ -569,7 +569,7 @@ new class extends Component {
                                                     $isSubExpired = $s->expires_at && $s->expires_at->isPast();
                                                 @endphp
                                                 @if($isSubExpired)
-                                                    <span class="badge bg-danger bg-opacity-20 border border-danger border-opacity-25 text-danger rounded-pill px-2 py-1" style="font-size: 11px;" title="Истекла {{ $s->expires_at->format('d.m.Y') }}">
+                                                    <span class="badge bg-danger bg-opacity-20 border border-danger border-opacity-25 text-white rounded-pill px-2 py-1" style="font-size: 11px;" title="Истекла {{ $s->expires_at->format('d.m.Y') }}">
                                                         <i class="bi bi-exclamation-circle text-danger me-1"></i>#{{ $s->id }} {{ $s->name }} (истекла {{ $s->expires_at->format('d.m.Y') }})
                                                     </span>
                                                 @else
@@ -720,7 +720,7 @@ new class extends Component {
 
                             @if($subscription->expires_at)
                                 @if($subscription->expires_at->isPast())
-                                    <span class="badge bg-danger bg-opacity-15 text-danger border border-danger border-opacity-25 rounded-pill"
+                                    <span class="badge bg-danger bg-opacity-15 text-white border border-danger border-opacity-25 rounded-pill"
                                           title="Подписка истекла {{ $subscription->expires_at->format('d.m.Y H:i') }}">
                                         <i class="bi bi-clock-history me-1"></i>Истекла: {{ $subscription->expires_at->format('d.m.Y') }}
                                     </span>
@@ -904,7 +904,7 @@ new class extends Component {
                                                     <strong>#{{ $sub->id }} {{ $sub->name }}</strong>
                                                     <span class="text-muted">({{ $sub->install_limit }} устр.)</span>
                                                     @if($sub->expires_at && $sub->expires_at->isPast())
-                                                        <span class="badge bg-danger bg-opacity-25 text-danger ms-1" style="font-size: 10px;">Истекла {{ $sub->expires_at->format('d.m.Y') }}</span>
+                                                        <span class="badge bg-danger bg-opacity-25 text-white ms-1" style="font-size: 10px;">Истекла {{ $sub->expires_at->format('d.m.Y') }}</span>
                                                     @endif
                                                 </label>
                                             </div>
