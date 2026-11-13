@@ -128,6 +128,10 @@ class SubscriptionService
             'custom_price'  => isset($data['custom_price']) && $data['custom_price'] !== '' ? $data['custom_price'] : null,
         ]);
 
+        if (!empty($data['expires_at'])) {
+            $this->setSubscriptionExpiry($subscription, \Carbon\Carbon::parse($data['expires_at']));
+        }
+
         // Пересоздаем ссылку, если токен изменился
         if ($oldToken !== $data['token']) {
             $happUrl = $this->happApi->generateLink($subscription);
@@ -259,13 +263,63 @@ class SubscriptionService
             $currentExpiry = $subscription->expires_at && $subscription->expires_at->isFuture()
                 ? $subscription->expires_at->copy()
                 : \Carbon\Carbon::now();
+            $newExpiry = $currentExpiry->addDays($days);
             $subscription->update([
-                'expires_at' => $currentExpiry->addDays($days)
+                'expires_at' => $newExpiry
             ]);
+
+            if ($subscription->client_tariff_id) {
+                $subscription->clientTariff?->update([
+                    'expires_at' => $newExpiry,
+                ]);
+            }
+
             return true;
         }
 
         return false;
+    }
+
+    /**
+     * Установка точной даты окончания для подписки, всех её конфигов и синхронизация с нодами.
+     */
+    public function setSubscriptionExpiry(int|Subscription $subscription, ?\Carbon\Carbon $newExpiresAt): bool
+    {
+        if (is_numeric($subscription)) {
+            $subscription = Subscription::with(['configs.node', 'clientTariff'])->findOrFail($subscription);
+        } else {
+            $subscription->loadMissing(['configs.node', 'clientTariff']);
+        }
+
+        $subscription->update([
+            'expires_at' => $newExpiresAt,
+        ]);
+
+        if ($subscription->client_tariff_id && $newExpiresAt) {
+            $subscription->clientTariff?->update([
+                'expires_at' => $newExpiresAt,
+            ]);
+        }
+
+        $expiryMs = $newExpiresAt ? (int) ($newExpiresAt->timestamp * 1000) : 0;
+        $isActive = $newExpiresAt ? $newExpiresAt->isFuture() : true;
+
+        foreach ($subscription->configs as $config) {
+            if (!$config->node || empty($config->email)) {
+                continue;
+            }
+
+            if ($newExpiresAt) {
+                $this->nodeApi->setExpiryOnNode($config, $newExpiresAt);
+            }
+
+            $config->update([
+                'expiry_time' => $expiryMs,
+                'is_active'   => $isActive,
+            ]);
+        }
+
+        return true;
     }
     /**
      * Проверяет наличие активной редакции ссылки у инбаунда (поддерживает как новый формат с params, так и legacy плоский).

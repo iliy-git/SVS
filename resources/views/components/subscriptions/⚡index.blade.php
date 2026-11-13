@@ -237,11 +237,13 @@ new class extends Component {
         }
 
         if (!empty($this->formSelectedSubIds)) {
-            \App\Models\Subscription::whereIn('id', $this->formSelectedSubIds)
-                ->update([
-                    'client_tariff_id' => $clientTariff->id,
-                    'expires_at'       => $expDate,
-                ]);
+            $subService = app(\App\Services\SubscriptionService::class);
+            $selectedSubs = \App\Models\Subscription::whereIn('id', $this->formSelectedSubIds)->get();
+
+            foreach ($selectedSubs as $sub) {
+                $sub->update(['client_tariff_id' => $clientTariff->id]);
+                $subService->setSubscriptionExpiry($sub, $expDate);
+            }
         }
 
         $this->showTariffModal = false;
@@ -273,15 +275,15 @@ new class extends Component {
 
         $ct->update(['expires_at' => $newExpiry]);
 
+        $subService = app(\App\Services\SubscriptionService::class);
         foreach ($ct->subscriptions as $sub) {
-            app(SubscriptionService::class)->extendSubscription($sub->id, $days);
-            $sub->update(['expires_at' => $newExpiry]);
+            $subService->setSubscriptionExpiry($sub, $newExpiry);
         }
 
         unset($this->client);
 
         $this->dispatch('notify', [
-            'message' => "Тариф и все входящие подписки продлены на {$days} дн.!",
+            'message' => "Тариф, все входящие подписки и конфиги на нодах продлены на {$days} дн.!",
             'type'    => 'success'
         ]);
     }

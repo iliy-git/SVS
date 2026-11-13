@@ -238,11 +238,26 @@ class TelegramController extends Controller
 
         // 1. Проверяем, что клиент существует и подписка принадлежит именно ему
         $client = Client::where('telegram_id', $telegramId)->first();
-        if (!$client || !$client->subscriptions()->where('subscriptions.id', $id)->exists()) {
+        if (!$client) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Клиент не найден'
+            ], 404);
+        }
+
+        $subscription = $client->subscriptions()->where('subscriptions.id', $id)->first();
+        if (!$subscription) {
             return response()->json([
                 'success' => false,
                 'message' => 'Подписка не найдена или не принадлежит данному клиенту'
             ], 403);
+        }
+
+        if ($subscription->client_tariff_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Данная подписка входит в тариф. Продление выполняется для тарифа целиком.'
+            ], 422);
         }
 
         // 2. Вызываем SubscriptionService для продления
@@ -313,6 +328,7 @@ class TelegramController extends Controller
             foreach ($clientTariff->subscriptions as $sub) {
                 $subscriptionService->extendSubscription($sub->id, $days);
                 $sub->update(['expires_at' => $newExpiry]);
+                $subscriptionService->setSubscriptionExpiry($sub, $newExpiry);
             }
         });
 

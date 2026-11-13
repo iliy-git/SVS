@@ -380,13 +380,21 @@ class NodeApiService
         return "{$parsed['scheme']}://{$user}{$host}{$portStr}{$urlPath}{$queryString}{$fragment}";
     }
     /**
-     * Продление клиента на ноде (3x-ui)
+     * Продление клиента на ноде (3x-ui) или установка точной даты
      */
-    public function extendClientOnNode(\App\Models\Config $config, int $days): bool
+    public function extendClientOnNode(\App\Models\Config $config, int $days = 30, ?int $expiryTimeMs = null): bool
     {
         $ip = $config->node->ip ?? 'localhost';
         $baseUrl = "https://{$ip}:11223";
         $apiKey = $config->node->api_key ?? '';
+
+        $payload = [
+            'email' => $config->email,
+            'days'  => $days,
+        ];
+        if ($expiryTimeMs !== null && $expiryTimeMs > 0) {
+            $payload['expiry_time'] = $expiryTimeMs;
+        }
 
         try {
             $response = Http::withHeaders([
@@ -394,10 +402,7 @@ class NodeApiService
             ])
                 ->withoutVerifying()
                 ->timeout(5)
-                ->post("{$baseUrl}/email/extend", [
-                    'email' => $config->email,
-                    'days'  => $days
-                ]);
+                ->post("{$baseUrl}/email/extend", $payload);
 
             if ($response->successful()) {
                 return true;
@@ -409,6 +414,18 @@ class NodeApiService
         }
 
         return false;
+    }
+
+    /**
+     * Установка точной даты окончания клиента на ноде (3x-ui)
+     */
+    public function setExpiryOnNode(\App\Models\Config $config, \Carbon\Carbon $expiresAt): bool
+    {
+        $expiryMs = (int) ($expiresAt->timestamp * 1000);
+        $diffSeconds = $expiresAt->timestamp - now()->timestamp;
+        $days = (int) max(1, round($diffSeconds / 86400));
+
+        return $this->extendClientOnNode($config, $days, $expiryMs);
     }
 
     /**
