@@ -304,15 +304,11 @@ class SubscriptionService
         $expiryMs = $newExpiresAt ? (int) ($newExpiresAt->timestamp * 1000) : 0;
         $isActive = $newExpiresAt ? $newExpiresAt->isFuture() : true;
 
+        if ($newExpiresAt && $subscription->configs->isNotEmpty()) {
+            $this->nodeApi->setExpiryForConfigs($subscription->configs, $newExpiresAt);
+        }
+
         foreach ($subscription->configs as $config) {
-            if (!$config->node || empty($config->email)) {
-                continue;
-            }
-
-            if ($newExpiresAt) {
-                $this->nodeApi->setExpiryOnNode($config, $newExpiresAt);
-            }
-
             $config->update([
                 'expiry_time' => $expiryMs,
                 'is_active'   => $isActive,

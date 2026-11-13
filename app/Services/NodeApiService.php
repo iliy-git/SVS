@@ -11,6 +11,15 @@ use Illuminate\Support\Facades\Log;
 class NodeApiService
 {
     /**
+     * Кэш недоступных нод в рамках текущего жизненного цикла запроса
+     */
+    protected static array $unreachableNodes = [];
+
+    /**
+     * Кэш уже выполненных продлений email на нодах
+     */
+    protected static array $extendedCache = [];
+    /**
      * Параллельное обновление статистики активных конфигов через Http::pool.
      * Запросы ко всем нодам выполняются одновременно, а не по очереди.
      */
@@ -385,7 +394,23 @@ class NodeApiService
     public function extendClientOnNode(\App\Models\Config $config, int $days = 30, ?int $expiryTimeMs = null): bool
     {
         $ip = $config->node->ip ?? 'localhost';
+        if (empty($ip) || $ip === 'localhost' || empty($config->email)) {
+            return false;
+        }
+
         $baseUrl = "https://{$ip}:11223";
+
+        // Если эта нода уже показала сбой подключения в текущем запросе — сразу пропускаем (0 мс)
+        if (isset(self::$unreachableNodes[$baseUrl])) {
+            return false;
+        }
+
+        // Если этот же email на этой же ноде уже был продлен в текущем запросе — не шлем дублирующий запрос
+        $cacheKey = "{$baseUrl}:{$config->email}:" . ($expiryTimeMs ?? $days);
+        if (isset(self::$extendedCache[$cacheKey])) {
+            return true;
+        }
+
         $apiKey = $config->node->api_key ?? '';
 
         $payload = [
@@ -401,16 +426,20 @@ class NodeApiService
                 'X-API-KEY' => $apiKey
             ])
                 ->withoutVerifying()
-                ->timeout(5)
+                ->connectTimeout(2)
+                ->timeout(3)
                 ->post("{$baseUrl}/email/extend", $payload);
 
             if ($response->successful()) {
+                self::$extendedCache[$cacheKey] = true;
                 return true;
             }
 
             Log::error("Ошибка POST /email/extend на ноде {$baseUrl} (Email: {$config->email}): " . $response->body());
         } catch (\Exception $e) {
-            Log::error("Сбой ноды {$baseUrl} при продлении: " . $e->getMessage());
+            // Запоминаем, что нода оффлайн/не отвечает, чтобы следующие конфиги не ждали таймаут
+            self::$unreachableNodes[$baseUrl] = true;
+            Log::warning("Нода {$baseUrl} недоступна при продлении: " . $e->getMessage());
         }
 
         return false;
@@ -426,6 +455,60 @@ class NodeApiService
         $days = (int) max(1, round($diffSeconds / 86400));
 
         return $this->extendClientOnNode($config, $days, $expiryMs);
+    }
+
+    /**
+     * Пакетная параллельная установка даты окончания для коллекции конфигов через Http::pool
+     */
+    public function setExpiryForConfigs(iterable $configs, \Carbon\Carbon $expiresAt): void
+    {
+        $uniqueTargets = [];
+        $expiryMs = (int) ($expiresAt->timestamp * 1000);
+        $diffSeconds = $expiresAt->timestamp - now()->timestamp;
+        $days = (int) max(1, round($diffSeconds / 86400));
+
+        foreach ($configs as $config) {
+            $node = $config->node;
+            if (!$node || empty($node->ip) || $node->ip === 'localhost' || empty($config->email)) {
+                continue;
+            }
+
+            $baseUrl = "https://{$node->ip}:11223";
+            if (isset(self::$unreachableNodes[$baseUrl])) {
+                continue;
+            }
+
+            $key = "{$baseUrl}|{$config->email}";
+            if (!isset($uniqueTargets[$key])) {
+                $uniqueTargets[$key] = [
+                    'baseUrl' => $baseUrl,
+                    'apiKey'  => $node->api_key ?? '',
+                    'payload' => [
+                        'email'       => $config->email,
+                        'days'        => $days,
+                        'expiry_time' => $expiryMs,
+                    ],
+                ];
+            }
+        }
+
+        if (empty($uniqueTargets)) {
+            return;
+        }
+
+        try {
+            Http::pool(function (Pool $pool) use ($uniqueTargets) {
+                foreach ($uniqueTargets as $target) {
+                    $pool->withHeaders(['X-API-KEY' => $target['apiKey']])
+                        ->withoutVerifying()
+                        ->connectTimeout(2)
+                        ->timeout(3)
+                        ->post("{$target['baseUrl']}/email/extend", $target['payload']);
+                }
+            });
+        } catch (\Throwable $e) {
+            Log::warning("Сбой при параллельном продлении конфигов на нодах: " . $e->getMessage());
+        }
     }
 
     /**
