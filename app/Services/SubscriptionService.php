@@ -224,7 +224,9 @@ class SubscriptionService
     }
 
     /**
-     * Продление всех активных конфигов подписки
+     * Продление подписки, всех её активных конфигов и синхронизация с нодами.
+     * Если подписка активна (срок в будущем) — добавляем дни к текущему сроку окончания.
+     * Если подписка истекла — продлеваем с сегодняшнего дня (now() + $days).
      *
      * @param int $id
      * @param int $days Количество дней для продления
@@ -232,52 +234,25 @@ class SubscriptionService
      */
     public function extendSubscription(int $id, int $days = 30): bool
     {
-        $subscription = Subscription::with(['configs.node'])->findOrFail($id);
+        $subscription = Subscription::with(['configs.node', 'clientTariff'])->findOrFail($id);
 
-        if ($subscription->configs->isEmpty()) {
-            return false;
-        }
+        $baseDate = ($subscription->expires_at && $subscription->expires_at->isFuture())
+            ? $subscription->expires_at->copy()
+            : now();
 
-        $nowMs = now()->timestamp * 1000;
-        $updatedConfigs = 0;
+        $newExpiry = $baseDate->copy()->addDays($days);
 
-        foreach ($subscription->configs as $config) {
-            if (!$config->node || empty($config->email)) continue;
+        // Синхронизируем точную дату окончания для подписки, всех её конфигов и на всех нодах
+        $this->setSubscriptionExpiry($subscription, $newExpiry);
 
-            $currentExpiry = (int)$config->expiry_time;
-            $baseTime = ($currentExpiry > $nowMs) ? $currentExpiry : $nowMs;
-
-            // Динамический расчет времени: $days * 24 часа * 60 мин * 60 сек * 1000 мс
-            $newExpiryMs = $baseTime + ($days * 24 * 60 * 60 * 1000);
-
-            // === ВЫЗЫВАЕМ ВНЕШНИЙ СЕРВИС ===
-            $isExtended = $this->nodeApi->extendClientOnNode($config, $days);
-
-            if ($isExtended) {
-                $config->update(['expiry_time' => $newExpiryMs, 'is_active' => true]);
-                $updatedConfigs++;
+        if ($subscription->client_tariff_id && $subscription->clientTariff) {
+            $tariffExpiry = $subscription->clientTariff->expires_at;
+            if (!$tariffExpiry || $newExpiry->gt($tariffExpiry)) {
+                $subscription->clientTariff->update(['expires_at' => $newExpiry]);
             }
         }
 
-        if ($updatedConfigs > 0) {
-            $currentExpiry = $subscription->expires_at && $subscription->expires_at->isFuture()
-                ? $subscription->expires_at->copy()
-                : \Carbon\Carbon::now();
-            $newExpiry = $currentExpiry->addDays($days);
-            $subscription->update([
-                'expires_at' => $newExpiry
-            ]);
-
-            if ($subscription->client_tariff_id) {
-                $subscription->clientTariff?->update([
-                    'expires_at' => $newExpiry,
-                ]);
-            }
-
-            return true;
-        }
-
-        return false;
+        return true;
     }
 
     /**

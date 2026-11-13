@@ -322,12 +322,10 @@ class TelegramController extends Controller
             : now();
         $newExpiry = $baseDate->copy()->addDays($days);
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($clientTariff, $subscriptionService, $days, $newExpiry) {
+        \Illuminate\Support\Facades\DB::transaction(function () use ($clientTariff, $subscriptionService, $newExpiry) {
             $clientTariff->update(['expires_at' => $newExpiry]);
 
             foreach ($clientTariff->subscriptions as $sub) {
-                $subscriptionService->extendSubscription($sub->id, $days);
-                $sub->update(['expires_at' => $newExpiry]);
                 $subscriptionService->setSubscriptionExpiry($sub, $newExpiry);
             }
         });

@@ -556,6 +556,8 @@ new class extends Component {
                                         </span>
                                         @if($ct->expires_at && $ct->expires_at->isFuture())
                                             <span class="text-muted small">({{ (int)now()->diffInDays($ct->expires_at, false) }} дн.)</span>
+                                        @elseif($ct->expires_at && $ct->expires_at->isPast())
+                                            <span class="badge bg-danger bg-opacity-25 text-danger border-0">Истёк</span>
                                         @endif
                                     </div>
 
@@ -563,9 +565,18 @@ new class extends Component {
                                         <div class="small text-muted mb-1 text-uppercase fw-bold" style="font-size: 11px;">Входящие подписки ({{ $ct->subscriptions->count() }}):</div>
                                         <div class="d-flex flex-wrap gap-1">
                                             @forelse($ct->subscriptions as $s)
-                                                <span class="badge bg-dark border border-white border-opacity-10 text-white rounded-pill px-2 py-1" style="font-size: 11px;">
-                                                    <i class="bi bi-key-fill text-primary me-1"></i>#{{ $s->id }} {{ $s->name }} ({{ $s->install_limit }} устр.)
-                                                </span>
+                                                @php
+                                                    $isSubExpired = $s->expires_at && $s->expires_at->isPast();
+                                                @endphp
+                                                @if($isSubExpired)
+                                                    <span class="badge bg-danger bg-opacity-20 border border-danger border-opacity-25 text-danger rounded-pill px-2 py-1" style="font-size: 11px;" title="Истекла {{ $s->expires_at->format('d.m.Y') }}">
+                                                        <i class="bi bi-exclamation-circle text-danger me-1"></i>#{{ $s->id }} {{ $s->name }} (истекла {{ $s->expires_at->format('d.m.Y') }})
+                                                    </span>
+                                                @else
+                                                    <span class="badge bg-dark border border-white border-opacity-10 text-white rounded-pill px-2 py-1" style="font-size: 11px;">
+                                                        <i class="bi bi-key-fill text-primary me-1"></i>#{{ $s->id }} {{ $s->name }} ({{ $s->install_limit }} устр.)
+                                                    </span>
+                                                @endif
                                             @empty
                                                 <span class="text-muted small fst-italic">Подписки не прикреплены</span>
                                             @endforelse
@@ -704,6 +715,24 @@ new class extends Component {
                                 <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle rounded-pill"
                                       title="Не привязана к тарифу">
                                     <i class="bi bi-dash-circle me-1"></i>Без тарифа
+                                </span>
+                            @endif
+
+                            @if($subscription->expires_at)
+                                @if($subscription->expires_at->isPast())
+                                    <span class="badge bg-danger bg-opacity-15 text-danger border border-danger border-opacity-25 rounded-pill"
+                                          title="Подписка истекла {{ $subscription->expires_at->format('d.m.Y H:i') }}">
+                                        <i class="bi bi-clock-history me-1"></i>Истекла: {{ $subscription->expires_at->format('d.m.Y') }}
+                                    </span>
+                                @else
+                                    <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle rounded-pill"
+                                          title="Действует до {{ $subscription->expires_at->format('d.m.Y H:i') }}">
+                                        <i class="bi bi-calendar-check me-1"></i>До: {{ $subscription->expires_at->format('d.m.Y') }} ({{ (int)now()->diffInDays($subscription->expires_at, false) }} дн.)
+                                    </span>
+                                @endif
+                            @else
+                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle rounded-pill">
+                                    <i class="bi bi-infinity me-1"></i>Бессрочно
                                 </span>
                             @endif
                         </div>
@@ -874,6 +903,9 @@ new class extends Component {
                                                 <label class="form-check-label ms-2 text-white small" for="subCheck{{ $sub->id }}">
                                                     <strong>#{{ $sub->id }} {{ $sub->name }}</strong>
                                                     <span class="text-muted">({{ $sub->install_limit }} устр.)</span>
+                                                    @if($sub->expires_at && $sub->expires_at->isPast())
+                                                        <span class="badge bg-danger bg-opacity-25 text-danger ms-1" style="font-size: 10px;">Истекла {{ $sub->expires_at->format('d.m.Y') }}</span>
+                                                    @endif
                                                 </label>
                                             </div>
                                             @if($sub->client_tariff_id && $sub->client_tariff_id != $editingClientTariffId)
