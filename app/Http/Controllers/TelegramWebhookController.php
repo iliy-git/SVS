@@ -25,6 +25,15 @@ class TelegramWebhookController extends Controller
             $replyTo = $message['reply_to_message'];
             $replyText = $replyTo['text'] ?? $replyTo['caption'] ?? '';
 
+            // Ответ на веб-тикет поддержки клиента
+            if (preg_match('/🆔\s*client_(\d+)/u', $replyText, $matches)) {
+                $clientId = (int) $matches[1];
+                $replyContent = $message['text'] ?? $message['caption'] ?? '';
+                app(\App\Services\SupportTicketService::class)->handleAdminReply($clientId, $replyContent);
+                return;
+            }
+
+            // Стандартный ответ пользователю Telegram-бота
             if (preg_match('/🆔\s*(\d+)/u', $replyText, $matches)) {
                 $targetUserId = $matches[1];
 
@@ -34,8 +43,11 @@ class TelegramWebhookController extends Controller
             }
         }
 
-        // 2. Если пишет админ не через Reply — игнорируем
-        if ($adminChatId && (string)$tgId === (string)$adminChatId) return;
+        // 2. Если пишет админ или сообщение отправлено внутри админского чата/группы не через Reply — игнорируем
+        $chatId = $message['chat']['id'] ?? null;
+        if ($adminChatId && ((string)$tgId === (string)$adminChatId || (string)$chatId === (string)$adminChatId)) {
+            return;
+        }
 
         // 3. Логика получения сообщения от пользователя
         $firstName = $message['from']['first_name'] ?? 'User';

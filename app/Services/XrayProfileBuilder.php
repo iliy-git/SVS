@@ -159,10 +159,12 @@ class XrayProfileBuilder
 и оплатите продление тарифа.
 ");
 
-        // Устанавливаем expire = 1 (в прошлом), чтобы клиент сразу показал просрочку
+        // Передаем реальную дату окончания подписки (в прошлом), чтобы Happ отображал корректную дату окончания вместо 1970 года
+        $expireTimestamp = $sub->expires_at ? $sub->expires_at->timestamp : (time() - 3600);
+
         return [
             'nodes' => $nodes,
-            'headers' => $this->buildHeaders($sub, "ПОДПИСКА #{$sub->id} ИСТЕКЛА", 0, 0, 1, $infoText, 1)
+            'headers' => $this->buildHeaders($sub, "ПОДПИСКА #{$sub->id} ИСТЕКЛА", 0, 0, 1, $infoText, $expireTimestamp)
         ];
     }
 
@@ -188,7 +190,7 @@ class XrayProfileBuilder
             'Subscription-Userinfo'   => $userInfo,
             'Profile-Update-Interval' => '2',
             'profile-web-page-url'    => $profileWebPageUrl,
-            'support-url'             => 'https://t.me/+DyqjfDZNgYY4NjNi',
+            'support-url'             => "{$profileWebPageUrl}#support",
             'announce'                => "base64:" . base64_encode($infoText),
             'subscription-pin'        => 'true',
         ];

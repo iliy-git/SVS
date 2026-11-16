@@ -25,6 +25,11 @@ class Client extends Model
         return $this->hasMany(ClientTariff::class);
     }
 
+    public function supportMessages(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(SupportMessage::class);
+    }
+
     public function scopeSearch(Builder $query, string $search = ''): Builder
     {
         if (empty($search)) {

@@ -1,7 +1,9 @@
 <?php
 
 use App\Models\Subscription;
+use App\Models\SupportMessage;
 use App\Services\SubscriptionService;
+use App\Services\SupportTicketService;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -10,10 +12,16 @@ new #[Layout('layouts.guest')] class extends Component
 {
     public string $token;
     public bool $showResetSuccess = false;
+    public string $ticketMessage = '';
+    public bool $showSupport = false;
 
     public function mount(string $token)
     {
         $this->token = $token;
+
+        if (request()->has('support') || request()->has('chat')) {
+            $this->showSupport = true;
+        }
 
         $sub = Subscription::with(['configs.node'])->where('token', $token)->first();
         if ($sub) {
@@ -72,6 +80,54 @@ new #[Layout('layouts.guest')] class extends Component
 
         // Обновляем модель в компоненте
         unset($this->subscription);
+    }
+
+    #[Computed]
+    public function client()
+    {
+        return $this->subscription->clients->first();
+    }
+
+    #[Computed]
+    public function chatMessages()
+    {
+        if (!$this->client) {
+            return collect();
+        }
+        return SupportMessage::where('client_id', $this->client->id)
+            ->oldest()
+            ->take(100)
+            ->get();
+    }
+
+    public function toggleSupport()
+    {
+        $this->showSupport = !$this->showSupport;
+    }
+
+    public function sendTicket()
+    {
+        $this->validate([
+            'ticketMessage' => 'required|string|min:1|max:2000',
+        ], [
+            'ticketMessage.required' => 'Введите сообщение',
+            'ticketMessage.max'      => 'Сообщение слишком длинное (максимум 2000 символов)',
+        ]);
+
+        if (!$this->client) {
+            $this->addError('ticketMessage', 'Клиент для данной подписки не найден');
+            return;
+        }
+
+        app(SupportTicketService::class)->sendMessageFromClient(
+            $this->client,
+            $this->ticketMessage,
+            $this->subscription
+        );
+
+        $this->ticketMessage = '';
+        $this->showSupport = true;
+        unset($this->chatMessages);
     }
 
     public function formatBytes($bytes, $precision = 2): string
@@ -380,6 +436,202 @@ new #[Layout('layouts.guest')] class extends Component
             transform: translateY(-2px);
             box-shadow: 0 12px 25px rgba(168, 85, 247, 0.45);
         }
+
+        /* Поддержка / Чат-тикет */
+        .btn-support-toggle {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 0.85rem 1.25rem;
+            border-radius: 16px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            background: rgba(99, 102, 241, 0.12);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            color: #a5b4fc;
+            margin-top: 1.5rem;
+        }
+        .btn-support-toggle:hover {
+            background: rgba(99, 102, 241, 0.22);
+            border-color: rgba(99, 102, 241, 0.5);
+            transform: translateY(-1px);
+        }
+        .btn-support-toggle.active {
+            background: rgba(99, 102, 241, 0.25);
+            border-color: #6366f1;
+            color: #ffffff;
+        }
+        .support-pulse-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #fbbf24;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px #fbbf24;
+            animation: pulse-dot 1.8s infinite;
+        }
+        @keyframes pulse-dot {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.3); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        .chat-container {
+            margin-top: 1.25rem;
+            background: rgba(13, 19, 33, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+        .chat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            padding-bottom: 0.75rem;
+        }
+        .chat-header-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #f3f4f6;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .chat-header-subtitle {
+            font-size: 0.72rem;
+            color: #9ca3af;
+        }
+        .chat-stream {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            max-height: 320px;
+            overflow-y: auto;
+            padding-right: 6px;
+            scroll-behavior: smooth;
+        }
+        .chat-stream::-webkit-scrollbar {
+            width: 4px;
+        }
+        .chat-stream::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+        }
+        .chat-empty-state {
+            text-align: center;
+            padding: 2rem 1rem;
+            color: #6b7280;
+            font-size: 0.8rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+        .chat-msg-row {
+            display: flex;
+            width: 100%;
+        }
+        .chat-msg-row.from-client {
+            justify-content: flex-end;
+        }
+        .chat-msg-row.from-admin {
+            justify-content: flex-start;
+        }
+        .chat-bubble {
+            max-width: 82%;
+            padding: 0.65rem 0.9rem;
+            border-radius: 16px;
+            font-size: 0.825rem;
+            line-height: 1.4;
+            word-break: break-word;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+        .chat-bubble.bubble-client {
+            background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+            color: #ffffff;
+            border-bottom-right-radius: 4px;
+        }
+        .chat-bubble.bubble-admin {
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #ecfdf5;
+            border-bottom-left-radius: 4px;
+        }
+        .bubble-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 3px;
+            font-size: 0.68rem;
+            opacity: 0.85;
+        }
+        .bubble-meta-admin {
+            color: #34d399;
+            font-weight: 700;
+        }
+        .bubble-meta-client {
+            color: #c7d2fe;
+            font-weight: 600;
+        }
+        .chat-input-bar {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+            background: rgba(11, 15, 25, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 14px;
+            padding: 6px 8px 6px 12px;
+            transition: all 0.2s ease;
+        }
+        .chat-input-bar:focus-within {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+        .chat-textarea {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #f3f4f6;
+            font-size: 0.85rem;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            max-height: 80px;
+            padding: 4px 0;
+            line-height: 1.4;
+        }
+        .chat-btn-send {
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            color: #ffffff;
+            border: none;
+            border-radius: 10px;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+        .chat-btn-send:hover:not(:disabled) {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        }
+        .chat-btn-send:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
     </style>
 
     <div class="remna-card">
@@ -599,6 +851,96 @@ new #[Layout('layouts.guest')] class extends Component
                 </a>
             @endif
         </div>
+
+        {{-- Кнопка открытия поддержки --}}
+        <button type="button"
+                wire:click="toggleSupport"
+                class="btn-support-toggle {{ $showSupport ? 'active' : '' }}"
+                id="support-toggle">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span>{{ $showSupport ? 'Скрыть чат' : 'Чат с поддержкой' }}</span>
+        </button>
+
+        {{-- Сплошной чат поддержки --}}
+        @if($showSupport)
+            <div class="chat-container" id="support" wire:poll.4s>
+                <div class="chat-header">
+                    <div>
+                        <div class="chat-header-title">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2.5">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                            </svg>
+                            <span>Поддержка</span>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Лента сообщений (сплошной чат) --}}
+                <div class="chat-stream" id="chat-stream-box">
+                    @forelse($this->chatMessages as $msg)
+                        <div class="chat-msg-row {{ $msg->sender === 'client' ? 'from-client' : 'from-admin' }}">
+                            <div class="chat-bubble {{ $msg->sender === 'client' ? 'bubble-client' : 'bubble-admin' }}">
+                                <div class="bubble-meta">
+                                    <span class="{{ $msg->sender === 'client' ? 'bubble-meta-client' : 'bubble-meta-admin' }}">
+                                        {{ $msg->sender === 'client' ? 'Вы' : '🛠 Поддержка' }}
+                                    </span>
+                                    <span>{{ $msg->created_at->timezone(config('app.timezone', 'Europe/Moscow'))->format('H:i') }}</span>
+                                </div>
+                                <div>{{ $msg->message }}</div>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="chat-empty-state">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity: 0.5;">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                            <span>Задайте любой вопрос или опишите проблему — мы сразу ответим!</span>
+                        </div>
+                    @endforelse
+                </div>
+
+                {{-- Поле ввода сообщения --}}
+                <div class="chat-input-bar">
+                    <textarea wire:model="ticketMessage"
+                              wire:keydown.enter.prevent="sendTicket"
+                              rows="1"
+                              class="chat-textarea"
+                              placeholder="Напишите сообщение..."></textarea>
+
+                    <button type="button"
+                            wire:click="sendTicket"
+                            wire:loading.attr="disabled"
+                            class="chat-btn-send"
+                            title="Отправить">
+                        <svg wire:loading.remove wire:target="sendTicket" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                        <span wire:loading wire:target="sendTicket" style="font-size: 10px;">...</span>
+                    </button>
+                </div>
+                @error('ticketMessage')
+                    <div style="color: #f87171; font-size: 0.72rem; margin-top: -6px; padding-left: 4px;">{{ $message }}</div>
+                @enderror
+            </div>
+
+            <script>
+                (() => {
+                    const scrollChat = () => {
+                        const box = document.getElementById('chat-stream-box');
+                        if (box) {
+                            box.scrollTop = box.scrollHeight;
+                        }
+                    };
+                    setTimeout(scrollChat, 100);
+                    document.addEventListener('livewire:navigated', scrollChat);
+                })();
+            </script>
+        @endif
 
     </div>
 </div>
