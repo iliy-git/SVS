@@ -28,6 +28,8 @@ Route::prefix($adminPrefix)->group(function () {
     Route::post('/telegram/subscriptions/{id}/extend', [TelegramController::class, 'extend']);
 
     Route::post('/telegram/tariffs/{id}/extend', [TelegramController::class, 'extendTariff']);
+
+    Route::post('/telegram/support-reply', [TelegramController::class, 'saveSupportReply']);
 });
 Route::middleware(['auth', 'verified'])->prefix($adminPrefix)->group(function () {
     Route::livewire('/dashboard', 'dashboard')->name('dashboard');

@@ -341,4 +341,27 @@ class TelegramController extends Controller
             ]
         ], 200);
     }
+
+    /**
+     * Сохранение ответа администратора из Telegram в веб-чат клиента
+     */
+    public function saveSupportReply(Request $request): JsonResponse
+    {
+        $clientId = (int) $request->input('client_id');
+        $message = (string) $request->input('message');
+
+        if (!$clientId || trim($message) === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Параметры client_id и message обязательны'
+            ], 422);
+        }
+
+        $success = app(\App\Services\SupportTicketService::class)->handleAdminReply($clientId, $message);
+
+        return response()->json([
+            'success' => $success,
+            'message' => $success ? 'Ответ успешно сохранен' : 'Ошибка сохранения ответа',
+        ], $success ? 200 : 500);
+    }
 }
