@@ -480,156 +480,235 @@ new #[Layout('layouts.guest')] class extends Component
             100% { transform: scale(0.95); opacity: 0.8; }
         }
 
-        .chat-container {
-            margin-top: 1.25rem;
-            background: rgba(13, 19, 33, 0.85);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 20px;
-            padding: 1.25rem;
+        /* СТАРОМОДНЫЙ ДИЗАЙН ЧАТА (Classic OS / Retro Style) */
+        .retro-toggle-btn {
+            width: 100%;
+            background: #c0c0c0;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: 2px 2px 0px #000000;
+            color: #000000;
+            font-family: 'Tahoma', 'MS Sans Serif', 'Segoe UI', sans-serif;
+            font-size: 13px;
+            font-weight: bold;
+            padding: 8px 14px;
+            cursor: pointer;
+            margin-top: 1.5rem;
             display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            text-transform: none;
         }
-        .chat-header {
+        .retro-toggle-btn:active, .retro-toggle-btn.active {
+            border-color: #808080 #ffffff #ffffff #808080;
+            box-shadow: inset 1px 1px 0px #000000;
+            background: #b5b5b5;
+        }
+
+        .retro-window {
+            margin-top: 1.25rem;
+            background: #c0c0c0;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: 3px 3px 0px rgba(0, 0, 0, 0.8);
+            font-family: 'Tahoma', 'MS Sans Serif', 'Segoe UI', sans-serif;
+            color: #000000;
+            padding: 3px;
+        }
+
+        .retro-titlebar {
+            background: linear-gradient(90deg, #0a246a 0%, #1084d0 100%);
+            padding: 3px 6px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-            padding-bottom: 0.75rem;
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: bold;
+            user-select: none;
+            margin-bottom: 3px;
         }
-        .chat-header-title {
-            font-size: 0.85rem;
-            font-weight: 700;
-            color: #f3f4f6;
+
+        .retro-title-left {
             display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .chat-header-subtitle {
-            font-size: 0.72rem;
-            color: #9ca3af;
-        }
-        .chat-stream {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-            max-height: 320px;
-            overflow-y: auto;
-            padding-right: 6px;
-            scroll-behavior: smooth;
-        }
-        .chat-stream::-webkit-scrollbar {
-            width: 4px;
-        }
-        .chat-stream::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.15);
-            border-radius: 4px;
-        }
-        .chat-empty-state {
-            text-align: center;
-            padding: 2rem 1rem;
-            color: #6b7280;
-            font-size: 0.8rem;
-            display: flex;
-            flex-direction: column;
             align-items: center;
             gap: 6px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
-        .chat-msg-row {
+
+        .retro-sys-btns {
             display: flex;
-            width: 100%;
+            gap: 2px;
         }
-        .chat-msg-row.from-client {
-            justify-content: flex-end;
-        }
-        .chat-msg-row.from-admin {
-            justify-content: flex-start;
-        }
-        .chat-bubble {
-            max-width: 82%;
-            padding: 0.65rem 0.9rem;
-            border-radius: 16px;
-            font-size: 0.825rem;
-            line-height: 1.4;
-            word-break: break-word;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        }
-        .chat-bubble.bubble-client {
-            background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
-            color: #ffffff;
-            border-bottom-right-radius: 4px;
-        }
-        .chat-bubble.bubble-admin {
-            background: rgba(16, 185, 129, 0.12);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-            color: #ecfdf5;
-            border-bottom-left-radius: 4px;
-        }
-        .bubble-meta {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 8px;
-            margin-bottom: 3px;
-            font-size: 0.68rem;
-            opacity: 0.85;
-        }
-        .bubble-meta-admin {
-            color: #34d399;
-            font-weight: 700;
-        }
-        .bubble-meta-client {
-            color: #c7d2fe;
-            font-weight: 600;
-        }
-        .chat-input-bar {
-            display: flex;
-            gap: 8px;
-            align-items: flex-end;
-            background: rgba(11, 15, 25, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            border-radius: 14px;
-            padding: 6px 8px 6px 12px;
-            transition: all 0.2s ease;
-        }
-        .chat-input-bar:focus-within {
-            border-color: #6366f1;
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
-        }
-        .chat-textarea {
-            flex: 1;
-            background: transparent;
-            border: none;
-            color: #f3f4f6;
-            font-size: 0.85rem;
-            font-family: inherit;
-            resize: none;
-            outline: none;
-            max-height: 80px;
-            padding: 4px 0;
-            line-height: 1.4;
-        }
-        .chat-btn-send {
-            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-            color: #ffffff;
-            border: none;
-            border-radius: 10px;
-            width: 36px;
-            height: 36px;
+
+        .retro-sys-btn {
+            width: 16px;
+            height: 14px;
+            background: #c0c0c0;
+            border: 1px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: inset 1px 1px 0px #ffffff, inset -1px -1px 0px #808080;
+            color: #000000;
+            font-size: 9px;
+            font-weight: bold;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            transition: all 0.2s ease;
-            flex-shrink: 0;
+            line-height: 1;
+            padding: 0;
+            font-family: monospace;
         }
-        .chat-btn-send:hover:not(:disabled) {
-            transform: scale(1.05);
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        .retro-sys-btn:active {
+            border-color: #808080 #ffffff #ffffff #808080;
+            box-shadow: inset 1px 1px 0px #000000;
         }
-        .chat-btn-send:disabled {
-            opacity: 0.5;
+
+        .retro-chat-area {
+            background: #ffffff;
+            border: 2px solid;
+            border-color: #808080 #ffffff #ffffff #808080;
+            box-shadow: inset 1px 1px 0px #000000;
+            height: 250px;
+            overflow-y: auto;
+            padding: 8px 10px;
+            font-size: 12px;
+            line-height: 1.5;
+            font-family: 'Tahoma', 'MS Sans Serif', sans-serif;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .retro-chat-area::-webkit-scrollbar {
+            width: 14px;
+            background: #dfdfdf;
+        }
+        .retro-chat-area::-webkit-scrollbar-thumb {
+            background: #c0c0c0;
+            border: 1px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: 1px 1px 0px #000;
+        }
+
+        .retro-system-line {
+            color: #777777;
+            font-size: 10px;
+            font-style: italic;
+            border-bottom: 1px dotted #cccccc;
+            padding-bottom: 4px;
+            margin-bottom: 4px;
+        }
+
+        .retro-msg-line {
+            word-break: break-word;
+            padding: 2px 4px;
+            border-radius: 2px;
+        }
+        .retro-msg-line.from-admin {
+            background: #f4fbf4;
+            border-left: 2px solid #2e7d32;
+        }
+        .retro-msg-line.from-client {
+            background: #f7f9ff;
+            border-left: 2px solid #1565c0;
+        }
+
+        .retro-timestamp {
+            color: #707070;
+            font-size: 10px;
+            font-family: monospace;
+            margin-right: 4px;
+        }
+
+        .retro-author-client {
+            color: #0d47a1;
+            font-weight: bold;
+            margin-right: 4px;
+        }
+
+        .retro-author-admin {
+            color: #b71c1c;
+            font-weight: bold;
+            margin-right: 4px;
+        }
+
+        .retro-msg-text {
+            color: #111111;
+        }
+
+        .retro-empty {
+            text-align: center;
+            color: #888888;
+            font-size: 11px;
+            font-style: italic;
+            margin: auto;
+        }
+
+        .retro-input-box {
+            margin-top: 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .retro-textarea {
+            width: 100%;
+            background: #ffffff;
+            border: 2px solid;
+            border-color: #808080 #ffffff #ffffff #808080;
+            box-shadow: inset 1px 1px 0px #000000;
+            color: #000000;
+            font-family: 'Tahoma', 'MS Sans Serif', sans-serif;
+            font-size: 12px;
+            padding: 6px 8px;
+            resize: none;
+            outline: none;
+            box-sizing: border-box;
+            height: 52px;
+        }
+        .retro-textarea:focus {
+            background: #fffffe;
+        }
+
+        .retro-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 2px 2px 0 2px;
+        }
+
+        .retro-status-bar {
+            font-size: 10px;
+            color: #333333;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .retro-send-btn {
+            background: #c0c0c0;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: 1px 1px 0px #000000;
+            color: #000000;
+            font-family: 'Tahoma', 'MS Sans Serif', sans-serif;
+            font-size: 11px;
+            font-weight: bold;
+            padding: 4px 16px;
+            cursor: pointer;
+            outline: none;
+        }
+        .retro-send-btn:active {
+            border-color: #808080 #ffffff #ffffff #808080;
+            box-shadow: inset 1px 1px 0px #000000;
+            padding: 5px 15px 3px 17px;
+        }
+        .retro-send-btn:disabled {
+            color: #808080;
+            text-shadow: 1px 1px 0px #ffffff;
             cursor: not-allowed;
         }
     </style>
@@ -855,76 +934,71 @@ new #[Layout('layouts.guest')] class extends Component
         {{-- Кнопка открытия поддержки --}}
         <button type="button"
                 wire:click="toggleSupport"
-                class="btn-support-toggle {{ $showSupport ? 'active' : '' }}"
+                class="retro-toggle-btn {{ $showSupport ? 'active' : '' }}"
                 id="support-toggle">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
             </svg>
-            <span>{{ $showSupport ? 'Скрыть чат' : 'Чат с поддержкой' }}</span>
+            <span>{{ $showSupport ? 'Свернуть окно поддержки' : 'Чат с поддержкой' }}</span>
         </button>
 
-        {{-- Сплошной чат поддержки --}}
+        {{-- Сплошной чат поддержки в стиле Windows / Retro --}}
         @if($showSupport)
-            <div class="chat-container" id="support" wire:poll.4s>
-                <div class="chat-header">
-                    <div>
-                        <div class="chat-header-title">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2.5">
-                                <circle cx="12" cy="12" r="10"></circle>
-                                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
-                                <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                            </svg>
-                            <span>Поддержка</span>
-                        </div>
+            <div class="retro-window" id="support" wire:poll.4s>
+                <div class="retro-titlebar">
+                    <div class="retro-title-left">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                        <span>Служба поддержки</span>
+                    </div>
+                    <div class="retro-sys-btns">
+                        <button type="button" wire:click="toggleSupport" class="retro-sys-btn" title="Свернуть">_</button>
+                        <button type="button" wire:click="toggleSupport" class="retro-sys-btn" title="Закрыть">✕</button>
                     </div>
                 </div>
 
-                {{-- Лента сообщений (сплошной чат) --}}
-                <div class="chat-stream" id="chat-stream-box">
+                {{-- Лента сообщений --}}
+                <div class="retro-chat-area" id="chat-stream-box">
                     @forelse($this->chatMessages as $msg)
-                        <div class="chat-msg-row {{ $msg->sender === 'client' ? 'from-client' : 'from-admin' }}">
-                            <div class="chat-bubble {{ $msg->sender === 'client' ? 'bubble-client' : 'bubble-admin' }}">
-                                <div class="bubble-meta">
-                                    <span class="{{ $msg->sender === 'client' ? 'bubble-meta-client' : 'bubble-meta-admin' }}">
-                                        {{ $msg->sender === 'client' ? 'Вы' : '🛠 Поддержка' }}
-                                    </span>
-                                    <span>{{ $msg->created_at->timezone(config('app.timezone', 'Europe/Moscow'))->format('H:i') }}</span>
-                                </div>
-                                <div>{{ $msg->message }}</div>
-                            </div>
+                        <div class="retro-msg-line {{ $msg->sender === 'client' ? 'from-client' : 'from-admin' }}">
+                            <span class="retro-timestamp">[{{ $msg->created_at->timezone(config('app.timezone', 'Europe/Moscow'))->format('H:i') }}]</span>
+                            @if($msg->sender === 'client')
+                                <span class="retro-author-client">Вы:</span>
+                            @else
+                                <span class="retro-author-admin">Поддержка:</span>
+                            @endif
+                            <span class="retro-msg-text">{{ $msg->message }}</span>
                         </div>
                     @empty
-                        <div class="chat-empty-state">
-                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity: 0.5;">
-                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                            </svg>
-                            <span>Задайте любой вопрос или опишите проблему — мы сразу ответим!</span>
+                        <div class="retro-empty">
+                            Задайте вопрос или опишите проблему — мы сразу ответим!
                         </div>
                     @endforelse
                 </div>
 
                 {{-- Поле ввода сообщения --}}
-                <div class="chat-input-bar">
+                <div class="retro-input-box">
                     <textarea wire:model="ticketMessage"
                               wire:keydown.enter.prevent="sendTicket"
-                              rows="1"
-                              class="chat-textarea"
+                              class="retro-textarea"
                               placeholder="Напишите сообщение..."></textarea>
 
-                    <button type="button"
-                            wire:click="sendTicket"
-                            wire:loading.attr="disabled"
-                            class="chat-btn-send"
-                            title="Отправить">
-                        <svg wire:loading.remove wire:target="sendTicket" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="22" y1="2" x2="11" y2="13"></line>
-                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                        </svg>
-                        <span wire:loading wire:target="sendTicket" style="font-size: 10px;">...</span>
-                    </button>
+                    <div class="retro-footer">
+                        <div class="retro-status-bar">
+                            <span>🟢 Поддержка онлайн</span>
+                        </div>
+                        <button type="button"
+                                wire:click="sendTicket"
+                                wire:loading.attr="disabled"
+                                class="retro-send-btn">
+                            <span wire:loading.remove wire:target="sendTicket">Отправить</span>
+                            <span wire:loading wire:target="sendTicket">...</span>
+                        </button>
+                    </div>
                 </div>
                 @error('ticketMessage')
-                    <div style="color: #f87171; font-size: 0.72rem; margin-top: -6px; padding-left: 4px;">{{ $message }}</div>
+                    <div style="color: #b71c1c; font-size: 11px; padding: 2px 4px; font-weight: bold;">{{ $message }}</div>
                 @enderror
             </div>
 

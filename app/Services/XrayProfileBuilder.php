@@ -266,6 +266,63 @@ class XrayProfileBuilder
                 "tag" => $tag
             ];
         }
+
+        if ($u['scheme'] === 'hysteria2' || $u['scheme'] === 'hy2') {
+            $settings = [
+                "address" => $u['host'],
+                "port" => (int)($u['port'] ?? 443),
+                "version" => 2
+            ];
+
+            $finalmask = [];
+            if (!empty($query['fm'])) {
+                $fmDecoded = json_decode($query['fm'], true);
+                if (is_array($fmDecoded)) {
+                    $finalmask = $fmDecoded;
+                }
+            } elseif (!empty($query['obfs'])) {
+                $finalmask['udp'] = [
+                    [
+                        "type" => $query['obfs'],
+                        "settings" => [
+                            "password" => $query['obfs-password'] ?? ""
+                        ]
+                    ]
+                ];
+            }
+
+            if (!isset($finalmask['quicParams'])) {
+                $finalmask['quicParams'] = ["congestion" => "brutal"];
+            }
+
+            return [
+                "mux" => [
+                    "concurrency" => -1,
+                    "enabled" => false,
+                    "xudpConcurrency" => 8,
+                    "xudpProxyUDP443" => ""
+                ],
+                "protocol" => "hysteria",
+                "settings" => $settings,
+                "streamSettings" => [
+                    "finalmask" => $finalmask,
+                    "hysteriaSettings" => [
+                        "auth" => $u['user'] ?? "",
+                        "version" => 2
+                    ],
+                    "network" => "hysteria",
+                    "security" => "tls",
+                    "tlsSettings" => [
+                        "allowInsecure" => false,
+                        "alpn" => !empty($query['alpn']) ? array_map('trim', explode(',', $query['alpn'])) : ["h3"],
+                        "serverName" => $query['sni'] ?? $u['host'],
+                        "show" => false
+                    ]
+                ],
+                "tag" => $tag
+            ];
+        }
+
         return null;
     }
 
